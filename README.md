@@ -1,9 +1,5 @@
 # MTG Call Center AI Assistant
 
-> 🧊 **ARQUITECTURA Y ALCANCE CONGELADOS**  
-> Este proyecto sigue estrictamente el contrato establecido en [`AGENT.md`](AGENT.md).  
-> **Objetivo**: Código limpio, 100% testeado, documentado y defendible en entrevista técnica. Cero sobreingeniería.
-
 ---
 
 ## 🏛️ Matriz de Decisiones Arquitectónicas Congeladas
