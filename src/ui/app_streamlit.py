@@ -1,13 +1,14 @@
 import streamlit as st
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 # Add project root to path
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from src.orchestrator import MTGOrchestrator
+from src.ui.api_client import MTGAssistantClient
 
 st.set_page_config(
     page_title="MTG Call Center AI Assistant",
@@ -15,12 +16,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize Session State
-if "orchestrator" not in st.session_state:
-    st.session_state.orchestrator = MTGOrchestrator()
+# Initialize API Client
+if "api_client" not in st.session_state:
+    st.session_state.api_client = MTGAssistantClient()
 
-if "session_id" not in st.session_state:
-    st.session_state.session_id = "streamlit-session-01"
+# Initialize unique conversation UUID (SPEC 06)
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = str(uuid4())
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
@@ -28,36 +30,30 @@ if "messages" not in st.session_state:
             "role": "assistant",
             "content": "¡Hola! Soy tu asistente y juez de soporte para **Magic: The Gathering** del Call Center.\n\nPuedo resolver dudas del reglamento oficial (RAG), buscar cartas con imágenes en la API oficial, mantener el hilo de la conversación y diseñar cartas custom.",
             "sources": [],
-            "cards": []
+            "cards": [],
+            "active_filters": None
         }
     ]
 
 # Sidebar
 with st.sidebar:
     st.title("🪄 MTG AI Assistant")
-    st.markdown("**Arquitectura Congelada (AGENT.md)**")
+    st.caption("Frontend Streamlit conectado vía HTTP a FastAPI")
+    st.markdown("**Arquitectura Limpia (SPEC 05)**")
     st.info(
         "• **Frontend**: Streamlit\n\n"
-        "• **API**: FastAPI\n\n"
-        "• **Orchestrator**: 1 Router\n\n"
-        "• **LLM**: Azure OpenAI\n\n"
-        "• **RAG / Vector**: PostgreSQL + pgvector\n\n"
-        "• **External Tool**: MTG REST API\n\n"
-        "• **Memory**: Multi-turn Context"
+        "• **Protocolo**: HTTP / JSON\n\n"
+        "• **Backend**: FastAPI (`/api/chat`)\n\n"
+        "• **Orchestrator**: 1 Router (en backend)\n\n"
+        "• **RAG / Memory**: Canonical Services"
     )
     st.divider()
-    st.markdown("**4 Flujos del Reto:**")
-    st.markdown(
-        "1. 💧 **Rules RAG** (Maná / Fases / Combate)\n\n"
-        "2. 🔍 **Card Search** (API MTG + Imágenes)\n\n"
-        "3. 🔄 **Multi-turn** (Refinamiento elíptico)\n\n"
-        "4. ⭐ **Custom Card** (Bonus Han Solo)"
-    )
+    st.text(f"ID Sesión:\n{st.session_state.conversation_id[:18]}...")
+    st.divider()
     
     if st.button("Reiniciar Conversación", use_container_width=True):
         st.session_state.messages = []
-        st.session_state.session_id = f"streamlit-session-{int(st.session_state.get('reset_count', 0)) + 1}"
-        st.session_state.reset_count = st.session_state.get("reset_count", 0) + 1
+        st.session_state.conversation_id = str(uuid4())
         st.rerun()
 
 # Main Header
@@ -93,23 +89,24 @@ for msg in st.session_state.messages:
         # Display Cards if available
         cards = msg.get("cards", [])
         if cards:
-            st.markdown("**Cartas Encontradas:**")
+            st.markdown("**Cartas:**")
             cols = st.columns(min(len(cards), 4))
             for idx, c in enumerate(cards[:4]):
                 with cols[idx]:
                     if c.get("image_url"):
-                        st.image(c["image_url"], caption=f"{c['name']} ({c.get('mana_cost', '')})", use_container_width=True)
+                        st.image(c["image_url"], caption=f"{c['name']} ({c.get('mana_cost') or ''})", use_container_width=True)
                     else:
-                        st.markdown(f"**{c['name']}**\n\nCoste: `{c.get('mana_cost', '')}`\nTipo: *{c.get('type_line', '')}*")
+                        st.info(f"🃏 **{c['name']}**\n\n**Coste**: `{c.get('mana_cost') or '{0}'}`\n\n**Tipo**: *{c.get('type_line') or 'Desconocido'}*")
         
         # Display Sources / Citations if available
         sources = msg.get("sources", [])
         if sources:
-            with st.expander("📚 Fuentes y Citaciones Oficiales de Reglas"):
+            with st.expander("📚 Fuentes y Citaciones Oficiales"):
                 for s in sources:
-                    st.markdown(f"- `{s}`")
+                    ref_str = f" ({s.get('reference')})" if s.get("reference") else ""
+                    st.markdown(f"- **[{s.get('kind', '').upper()}]** {s.get('title')}{ref_str}")
 
-# Handle user input (from text box or quick buttons)
+# Handle user input
 user_input = st.chat_input("Escribe tu consulta sobre reglas o búsqueda de cartas...")
 active_prompt = prompt_to_send or user_input
 
@@ -120,36 +117,46 @@ if active_prompt:
         st.markdown(active_prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Consultando reglas y base de datos..."):
-            response = st.session_state.orchestrator.handle_message(
-                session_id=st.session_state.session_id,
-                message=active_prompt
-            )
+        with st.spinner("Consultando backend FastAPI..."):
+            try:
+                data = st.session_state.api_client.chat(
+                    conversation_id=st.session_state.conversation_id,
+                    message=active_prompt
+                )
+                bot_message = data.get("message", "")
+                cards = data.get("cards", [])
+                sources = data.get("sources", [])
+                filters = data.get("active_filters")
+            except Exception as e:
+                bot_message = f"⚠️ Error al conectar con el backend FastAPI: {e}"
+                cards = []
+                sources = []
+                filters = None
 
-        st.markdown(response["reply"])
+        st.markdown(bot_message)
 
         # Display Cards
-        cards = response.get("cards", [])
         if cards:
-            st.markdown("**Cartas Encontradas:**")
+            st.markdown("**Cartas:**")
             cols = st.columns(min(len(cards), 4))
             for idx, c in enumerate(cards[:4]):
                 with cols[idx]:
                     if c.get("image_url"):
-                        st.image(c["image_url"], caption=f"{c['name']} ({c.get('mana_cost', '')})", use_container_width=True)
+                        st.image(c["image_url"], caption=f"{c['name']} ({c.get('mana_cost') or ''})", use_container_width=True)
                     else:
-                        st.markdown(f"**{c['name']}**\n\nCoste: `{c.get('mana_cost', '')}`\nTipo: *{c.get('type_line', '')}*")
+                        st.info(f"🃏 **{c['name']}**\n\n**Coste**: `{c.get('mana_cost') or '{0}'}`\n\n**Tipo**: *{c.get('type_line') or 'Desconocido'}*")
 
         # Display Citations
-        sources = response.get("sources", [])
         if sources:
-            with st.expander("📚 Fuentes y Citaciones Oficiales de Reglas"):
+            with st.expander("📚 Fuentes y Citaciones Oficiales"):
                 for s in sources:
-                    st.markdown(f"- `{s}`")
+                    ref_str = f" ({s.get('reference')})" if s.get("reference") else ""
+                    st.markdown(f"- **[{s.get('kind', '').upper()}]** {s.get('title')}{ref_str}")
 
     st.session_state.messages.append({
         "role": "assistant",
-        "content": response["reply"],
-        "sources": response.get("sources", []),
-        "cards": response.get("cards", [])
+        "content": bot_message,
+        "sources": sources,
+        "cards": cards,
+        "active_filters": filters
     })

@@ -1,88 +1,125 @@
 # MTG Call Center AI Assistant
 
-> 🧊 **ARQUITECTURA Y ALCANCE CONGELADOS**  
-> Este proyecto sigue estrictamente el contrato establecido en [`AGENT.md`](AGENT.md).  
-> **Objetivo**: Código limpio, 100% testeado, documentado y defendible en entrevista técnica. Cero sobreingeniería.
+Asistente de soporte especializado para jugadores y operadores de Call Center de **Magic: The Gathering (MTG)**.
 
 ---
 
-## 🏛️ Matriz de Decisiones Arquitectónicas Congeladas
+## 🏛️ Arquitectura del Sistema (Clean Boundary)
 
-| Componente | Tecnología Seleccionada | Justificación Técnica |
+El proyecto sigue una separación estricta de capas comunicadas exclusivamente por **HTTP/JSON**:
+
+```text
+                    ┌─────────────────────────┐
+                    │        Streamlit        │
+                    │   (src/ui/app_streamlit)│
+                    └────────────┬────────────┘
+                                 │
+                            HTTP / JSON
+                         (MTGAssistantClient)
+                                 │
+                                 ▼
+                    ┌─────────────────────────┐
+                    │         FastAPI         │
+                    │      (src/api/app)      │
+                    └────────────┬────────────┘
+                                 │
+                           ChatRequest /
+                           ChatResponse
+                                 │
+                                 ▼
+                    ┌─────────────────────────┐
+                    │     MTGOrchestrator     │
+                    │   (1 Router determinista)
+                    └────────────┬────────────┘
+                                 │
+            ┌────────────────────┼────────────────────┐
+            ▼                    ▼                    ▼
+     Rules Service           MTG Tool          Conversation Memory
+     (CR 100-900)       (magicthegathering.io)  (Filtros acumulados)
+```
+
+---
+
+## 📊 Estado Actual: Demo Implementada vs. Arquitectura Propuesta
+
+Para total transparencia técnica, distinguimos lo **ejecutable hoy** de la **evolución productiva**:
+
+| Componente | Demo Local Implementada (Milestone 1) | Arquitectura Productiva Propuesta (Azure) |
 | :--- | :--- | :--- |
-| **Frontend Demo** | **Streamlit** | Interfaz conversacional rápida, limpia e interactiva con visualización de cartas e imágenes. |
-| **Backend API** | **FastAPI** | Framework asíncrono en Python, tipado estricto Pydantic y endpoints de producción (`/health`, `/api/chat`). |
-| **Orquestador** | **1 Router (Intent Router)** | Clasificador determinista de 4 vías. Cero agentes superfluos ni bucles infinitos. |
-| **LLM** | **Azure OpenAI** | `gpt-4o` (razonamiento complejo de combate) y `gpt-4o-mini` (extracción/enrutado). Fallback local determinista. |
-| **Vector DB / RAG** | **PostgreSQL + pgvector** | Almacenamiento unificado de embeddings (HNSW `vector_cosine_ops`) y Full-Text Search (`tsvector`). Sustituye Azure AI Search a 1/10 del coste. |
-| **Herramienta Externa** | **MTG REST API** | Integración con `https://api.magicthegathering.io/v1/cards` con `User-Agent` personalizado y mapeo español-inglés. |
-| **Memoria Conversacional** | **PostgreSQL** | Persistencia de sesiones y acumulación elíptica de filtros. Sustituye Cosmos DB. |
-| **Entorno Local** | **Docker Compose** | Imagen oficial `pgvector/pgvector:pg16` para base de datos local en puerto 5432. |
-| **Cloud Provider** | **Microsoft Azure** | Despliegue en Azure Container Apps + PostgreSQL Flexible Server. |
-| **IaC (Infraestructura)** | **Terraform** | Código modular en `infra/terraform/` validado con `terraform validate` (0 errores, 0 warnings). |
-| **Observabilidad** | **Application Insights / OpenTelemetry** | Trazabilidad distribuida APM, percentiles de latencia (p95), errores y auditoría de tokens. |
+| **Frontend** | Streamlit (`src/ui/app_streamlit.py`) consumiendo HTTP | Streamlit / Consola Omnicanal Call Center |
+| **API** | FastAPI (`/api/chat`, `/health`) con esquemas Pydantic tipados | Azure Container Apps (serverless escalable) |
+| **Orquestador** | 1 Router clasificando los 4 flujos en `AssistantResult` | Router en contenedor con observabilidad OpenTelemetry |
+| **RAG / Reglas** | Ingesta jerárquica canónica (CR 100-900) con citaciones formales | PostgreSQL Flexible Server + `pgvector` HNSW (Milestone 2) |
+| **Cartas** | Tool HTTP (`magicthegathering.io`) con bug `max_cmc` corregido | Tool con caché en PostgreSQL |
+| **Memoria** | Gestor contextual multi-turno (repreguntas elípticas) | Tabla relacional en PostgreSQL |
+| **LLM** | Motor de síntesis determinista con fallback | Azure OpenAI (`gpt-4o` y `gpt-4o-mini`) (Milestone 3) |
+| **IaC** | Terraform validado en `infra/terraform/` (`terraform validate`) | Despliegue automatizado en Azure |
 
 ---
 
-## 🎯 Los 4 Únicos Flujos del Reto
+## 🎯 Los 4 Flujos del Reto
 
 1. **Flujo 1 — Rules RAG**:
    - Resuelve dudas sobre el maná (CR 106), fases del turno (CR 500) y puzzles de combate (*Rapaz del campo de batalla [Dañar primero] + Ninja de horas tardías [Ninjutsu]*).
-   - Incluye citas formales: `Magic Comprehensive Rules (CR XXX.X)`.
+   - Devuelve `type: "rules"` con citas estructuradas en `sources`: `CR 106.1`, `CR 702.48c`, `CR 702.7b`, etc.
 2. **Flujo 2 — Card Search (Tool Calling)**:
-   - Traduce lenguaje natural (*"Busco una carta blanca de coste inferior a dos que sea guerrero"*) a filtros tipados sobre la API REST oficial, devolviendo nombres, costes, tipos e imágenes oficiales de Gatherer.
+   - Traduce lenguaje natural (*"Busco una carta blanca guerrero de coste inferior a dos"*).
+   - Filtros canónicos normalizados (`color: "W"`, `subtype: "Warrior"`, `max_cmc: 1`).
+   - Devuelve `type: "card_search"`, lista de cartas con enlaces oficiales a Gatherer y `active_filters`.
 3. **Flujo 3 — Multi-turn Conversation**:
-   - Preserva el contexto de filtros. Tras la búsqueda anterior, si el usuario pregunta: *"¿Y alguna que cueste solo uno?"*, el sistema acumula las restricciones (`color=blanco, subtype=guerrero, cmc=1`).
+   - Preserva el contexto de filtros entre turnos. Si tras el Flujo 2 el usuario pregunta *"¿Y alguna que cueste solo uno?"*, el sistema mantiene `color="W"` y `subtype="Warrior"` y actualiza `cmc=1`.
 4. **Flujo 4 — Custom Card [Bonus]**:
-   - Diseña cartas equilibradas según el *Color Pie* (ej. *"Quiero una carta de Han Solo, blanca-roja con dañar primero"*).
+   - Diseña cartas equilibradas según el *Color Pie* (Han Solo, Capitán del Halcón 3/2, Boros {1}{R}{W} con Dañar primero).
+   - `image_url: null` honesto sin inventar enlaces falsos.
 
 ---
 
-## 📋 Definition of Done (DoD)
+## 📄 Contrato de la API
 
-- [x] **Arquitectura y Alcance Congelados**: Registrado contractualmente en `AGENT.md`.
-- [x] **Los 4 Flujos Implementados**: RAG, Tool Search, Multi-turno y Custom Card.
-- [x] **Tests Automatizados**: 9 tests con `pytest` pasando con 100% de éxito (`pytest tests/ -v`).
-- [x] **Frontend Demo**: Streamlit (`app_streamlit.py`) y chat web embebido en FastAPI (`/`).
-- [x] **Docker Compose**: Configurado con `pgvector/pgvector:pg16` para entorno local.
-- [x] **Terraform Validado**: Infraestructura Azure en `infra/terraform/` (`terraform validate`).
-- [x] **Documento Productivo**: Entregable Word de 15 puntos en [`docs/Solucion_Productiva_MTG_CallCenter.docx`](docs/Solucion_Productiva_MTG_CallCenter.docx).
+El contrato completo, esquemas Pydantic y ejemplos JSON se encuentran documentados en:  
+👉 **[`docs/api_contract.md`](docs/api_contract.md)**
+
+Ejemplo de llamada con `curl`:
+```bash
+curl -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"conversation_id": "test-session-1", "message": "Busco una carta blanca guerrero"}'
+```
 
 ---
 
-## 🚀 Cómo Ejecutar la Solución
+## 🧪 Estrategia de Pruebas (Zero Internet Unit Tests)
 
-### 1. Instalar dependencias
-```bash
-pip install -r requirements.txt
-```
+Las pruebas están estrictamente desacopladas para garantizar ejecuciones deterministas y rápidas:
 
-### 2. Ejecutar la Demo Frontend (Streamlit)
-```bash
-streamlit run app_streamlit.py
-```
-Abre en tu navegador la UI interactiva con botones rápidos para cada uno de los 4 flujos y renderizado de cartas.
+* **Tests Unitarios (100% Offline, sin Internet)**:
+  ```bash
+  pytest
+  # o explícitamente:
+  pytest tests/unit -v
+  ```
+  *17 tests que validan el contrato API, los 4 flujos, multi-turno HTTP, corrección del bug `max_cmc` y memoria en <1 segundo.*
 
-### 3. (Alternativa) Ejecutar el Backend FastAPI
+* **Tests de Integración en Vivo (API Real de MTG)**:
+  ```bash
+  pytest -m integration -v
+  ```
+  *Ejecuta llamadas reales contra `https://api.magicthegathering.io/v1/cards` para validar la conectividad externa.*
+
+---
+
+## 🚀 Cómo Iniciar la Solución en Local
+
+### 1. Iniciar el Backend (FastAPI)
 ```bash
 uvicorn src.api.app:app --reload --port 8000
 ```
 - API Docs interactiva: `http://localhost:8000/docs`
-- Health Check: `http://localhost:8000/health`
-- Web Chat integrado: `http://localhost:8000/`
+- Health check: `http://localhost:8000/health`
 
-### 4. Ejecutar la Batería de Pruebas (Pytest)
+### 2. Iniciar el Frontend (Streamlit)
+En otra terminal:
 ```bash
-pytest tests/ -v
+streamlit run src/ui/app_streamlit.py
 ```
-
-### 5. Levantar PostgreSQL + pgvector local (Docker)
-```bash
-docker compose up -d
-```
-
-### 6. Validar Infraestructura Cloud (Terraform)
-```bash
-cd infra/terraform
-terraform validate
-```
+Abre en tu navegador `http://localhost:8501`. Streamlit consumirá FastAPI exclusivamente vía HTTP.

@@ -37,14 +37,14 @@ class MTGCardSearchTool:
         """
         Searches cards with structured filters:
         - name: e.g. 'Battlefield Raptor'
-        - color: e.g. 'White', 'Red', 'Blue', 'Black', 'Green'
-        - subtype: e.g. 'Warrior', 'Ninja', 'Dragon'
+        - color: canonical 'W', 'U', 'B', 'R', 'G' (or localized name)
+        - subtype: canonical 'Warrior', 'Ninja', etc.
         - card_type: e.g. 'Creature', 'Instant'
         - cmc: exact converted mana cost (e.g. 1)
-        - max_cmc: maximum converted mana cost (e.g. 1 means < 2)
+        - max_cmc: maximum converted mana cost (e.g. 1 means <= 1)
         """
         # 1. Build Query Parameters
-        params: Dict[str, Any] = {"pageSize": max(limit, 10)}
+        params: Dict[str, Any] = {"pageSize": max(limit * 3, 20)}
         
         if name:
             params["name"] = name
@@ -57,7 +57,7 @@ class MTGCardSearchTool:
             "verde": "G", "green": "G", "g": "G"
         }
         if color:
-            mapped_color = color_map.get(color.lower().strip(), color)
+            mapped_color = color_map.get(color.lower().strip(), color.upper())
             params["colorIdentity"] = mapped_color
 
         subtype_map = {
@@ -66,8 +66,8 @@ class MTGCardSearchTool:
             "soldado": "Soldier", "soldier": "Soldier",
             "caballero": "Knight", "knight": "Knight",
             "mago": "Wizard", "wizard": "Wizard",
-            "clerigo": "Cleric", "cleric": "Cleric",
-            "picaro": "Rogue", "rogue": "Rogue",
+            "clerigo": "Cleric", "clérigo": "Cleric", "cleric": "Cleric",
+            "picaro": "Rogue", "pícaro": "Rogue", "rogue": "Rogue",
             "dragon": "Dragon", "dragón": "Dragon",
             "angel": "Angel", "ángel": "Angel",
             "ave": "Bird", "bird": "Bird",
@@ -90,13 +90,15 @@ class MTGCardSearchTool:
             mapped_type = type_map.get(card_type.lower().strip(), card_type.capitalize())
             params["types"] = mapped_type
 
-        # Handle CMC (under 2 means cmc=0 or cmc=1)
+        # BUG FIX (SPEC 10):
+        # Only set exact cmc in API params if exact cmc is requested.
+        # If max_cmc is set, do NOT set params["cmc"] = str(max_cmc), because
+        # that would filter cmc == max_cmc on the API and miss cmc=0 cards.
+        # Instead, fetch candidates and filter locally with card_cmc <= max_cmc.
         if cmc is not None:
             params["cmc"] = str(cmc)
-        elif max_cmc is not None:
-            params["cmc"] = str(max_cmc)
 
-        cache_key = f"{params}"
+        cache_key = f"{params}_{max_cmc}_{limit}"
         if cache_key in self._cache:
             return self._cache[cache_key][:limit]
 
@@ -116,7 +118,7 @@ class MTGCardSearchTool:
         except Exception:
             return []
 
-        # 3. Parse and Deduplicate by Card Name
+        # 3. Parse and Deduplicate by Card Name with local <= max_cmc enforcement
         results: List[CardItem] = []
         seen_names = set()
 

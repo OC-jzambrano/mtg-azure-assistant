@@ -1,16 +1,33 @@
 import re
 from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field
+
+from src.api.schemas import (
+    ResponseType,
+    SourceRef,
+    CardResult,
+    CardSearchFilters
+)
 from src.tools.mtg_api import MTGCardSearchTool, CardItem
 from src.services.rules_rag import RulesRAGStore, RuleChunk
 from src.services.memory import ConversationMemory
 
+
+class AssistantResult(BaseModel):
+    type: ResponseType
+    message: str
+    cards: List[CardResult] = Field(default_factory=list)
+    sources: List[SourceRef] = Field(default_factory=list)
+    active_filters: Optional[CardSearchFilters] = None
+
+
 class MTGOrchestrator:
     """
     Single pragmatic Orchestrator / Intent Router:
-    1. Intent Classification (Rules RAG, Card Search, Custom Card, General)
+    1. Intent Classification (RULES, CARD_SEARCH, CUSTOM_CARD, CONVERSATION)
     2. Tool Execution (MTG API, RAG Store)
     3. Multi-turn State Preservation
-    4. Grounded response with citations and card images
+    4. Strongly typed AssistantResult domain output
     """
 
     def __init__(self, rag_store: Optional[RulesRAGStore] = None, api_tool: Optional[MTGCardSearchTool] = None):
@@ -18,12 +35,12 @@ class MTGOrchestrator:
         self.api_tool = api_tool or MTGCardSearchTool()
         self.memory = ConversationMemory()
 
-    def classify_intent(self, message: str, last_topic: Optional[str] = None) -> str:
+    def classify_intent(self, message: str, last_topic: Optional[str] = None) -> ResponseType:
         msg = message.lower().strip()
 
         # 1. Custom Card Intent
         if any(w in msg for w in ["crea", "crear", "créame", "diseña", "inventa", "custom", "han solo"]):
-            return "CUSTOM_CARD"
+            return ResponseType.CUSTOM_CARD
 
         # 2. Rules / Combat Interaction Intent
         rule_signals = [
@@ -33,77 +50,103 @@ class MTGOrchestrator:
             "entra el daño", "hace daño", "bloqueo", "prioridad", "pila", "stack"
         ]
         if any(w in msg for w in rule_signals):
-            return "RULES"
+            return ResponseType.RULES
 
         # 3. Card Search Intent (explicit or follow-up refinement)
         search_signals = ["busco", "busca", "buscar", "carta", "cartas", "encuentra", "dime una carta"]
         if any(w in msg for w in search_signals):
-            return "CARD_SEARCH"
+            return ResponseType.CARD_SEARCH
 
         # Multi-turn follow-up: if previous topic was search and user asks for modification
         refine_signals = ["y alguna", "y una", "que cueste", "de coste", "solo uno", "color", "menos de"]
-        if last_topic == "CARD_SEARCH" and any(w in msg for w in refine_signals):
-            return "CARD_SEARCH"
+        if last_topic == ResponseType.CARD_SEARCH and any(w in msg for w in refine_signals):
+            return ResponseType.CARD_SEARCH
 
-        return "CONVERSATION"
+        return ResponseType.CONVERSATION
 
     def _extract_search_filters(self, message: str, existing_filter: Dict[str, Any]) -> Dict[str, Any]:
-        """Extracts structured search entities and merges with existing session filters."""
+        """
+        Extracts structured search entities and canonicalizes them into standard domain values:
+        - Colors canonical: 'W', 'U', 'B', 'R', 'G'
+        - Subtypes canonical: 'Warrior', 'Ninja', 'Dragon', etc.
+        """
         msg = message.lower()
         filters = dict(existing_filter)
 
-        # Colors
-        colors = {
-            "blanco": "blanco", "blanca": "blanco", "white": "White",
-            "azul": "azul", "blue": "Blue",
-            "negro": "negro", "negra": "negro", "black": "Black",
-            "rojo": "rojo", "roja": "rojo", "red": "Red",
-            "verde": "verde", "green": "Green"
+        # Canonical Colors (SPEC 11)
+        color_patterns = {
+            "W": [r"\bblanco\b", r"\bblanca\b", r"\bwhite\b", r"\bw\b"],
+            "U": [r"\bazul\b", r"\bblue\b", r"\bu\b"],
+            "B": [r"\bnegro\b", r"\bnegra\b", r"\bblack\b", r"\bb\b"],
+            "R": [r"\brojo\b", r"\broja\b", r"\bred\b", r"\br\b"],
+            "G": [r"\bverde\b", r"\bgreen\b", r"\bg\b"],
         }
-        for kw, col in colors.items():
-            if re.search(r"\b" + kw + r"\b", msg):
-                filters["color"] = col
+        for code, patterns in color_patterns.items():
+            if any(re.search(pat, msg) for pat in patterns):
+                filters["color"] = code
                 break
 
-        # Subtypes
-        subtypes = ["guerrero", "warrior", "ninja", "soldado", "soldier", "caballero", "knight", "mago", "wizard", "dragón", "dragon"]
-        for sub in subtypes:
-            if re.search(r"\b" + sub + r"\b", msg):
-                filters["subtype"] = sub
+        # Canonical Subtypes (SPEC 11)
+        subtype_patterns = {
+            "Warrior": [r"\bguerrero\b", r"\bguerrera\b", r"\bwarrior\b"],
+            "Ninja": [r"\bninja\b"],
+            "Soldier": [r"\bsoldado\b", r"\bsoldier\b"],
+            "Knight": [r"\bcaballero\b", r"\bknight\b"],
+            "Wizard": [r"\bmago\b", r"\bwizard\b"],
+            "Cleric": [r"\bclerigo\b", r"\bclérigo\b", r"\bcleric\b"],
+            "Rogue": [r"\bpicaro\b", r"\bpícaro\b", r"\brogue\b"],
+            "Dragon": [r"\bdragon\b", r"\bdragón\b"],
+            "Bird": [r"\bave\b", r"\bpajaro\b", r"\bbird\b"],
+            "Elf": [r"\belfo\b", r"\belf\b"],
+            "Zombie": [r"\bzombie\b"],
+        }
+        for subtype_canonical, patterns in subtype_patterns.items():
+            if any(re.search(pat, msg) for pat in patterns):
+                filters["subtype"] = subtype_canonical
                 break
 
         # CMC / Cost
         if "menos de dos" in msg or "inferior a dos" in msg or "menor a dos" in msg or "coste < 2" in msg:
             filters["max_cmc"] = 1
-            filters.pop("cmc", None)
+            filters["cmc"] = None
         elif "solo uno" in msg or "coste uno" in msg or "coste 1" in msg or "cmc 1" in msg or "un maná" in msg or "1 maná" in msg:
             filters["cmc"] = 1
-            filters.pop("max_cmc", None)
+            filters["max_cmc"] = None
         elif "coste dos" in msg or "coste 2" in msg:
             filters["cmc"] = 2
-            filters.pop("max_cmc", None)
+            filters["max_cmc"] = None
 
         return filters
 
-    def handle_message(self, session_id: str, message: str) -> Dict[str, Any]:
-        session = self.memory.get_or_create_session(session_id)
-        self.memory.add_user_message(session_id, message)
+    def handle_message(self, conversation_id: str, message: str) -> AssistantResult:
+        ctx = self.memory.get_or_create_conversation(conversation_id)
+        self.memory.add_user_message(conversation_id, message)
 
-        intent = self.classify_intent(message, session.last_topic)
+        resp_type = self.classify_intent(message, ctx.last_topic)
 
-        if intent == "RULES":
-            return self._handle_rules(session_id, message)
-        elif intent == "CARD_SEARCH":
-            return self._handle_card_search(session_id, message)
-        elif intent == "CUSTOM_CARD":
-            return self._handle_custom_card(session_id, message)
+        if resp_type == ResponseType.RULES:
+            return self._handle_rules(conversation_id, message)
+        elif resp_type == ResponseType.CARD_SEARCH:
+            return self._handle_card_search(conversation_id, message)
+        elif resp_type == ResponseType.CUSTOM_CARD:
+            return self._handle_custom_card(conversation_id, message)
         else:
-            return self._handle_general(session_id, message)
+            return self._handle_general(conversation_id, message)
 
-    def _handle_rules(self, session_id: str, message: str) -> Dict[str, Any]:
+    def _handle_rules(self, conversation_id: str, message: str) -> AssistantResult:
         msg_lower = message.lower()
         rule_chunks = self.rag.retrieve_rules(message, top_k=3)
-        citations = [c.citation for c in rule_chunks]
+
+        # Build typed SourceRef objects
+        sources: List[SourceRef] = [
+            SourceRef(
+                kind="rule",
+                title="Magic Comprehensive Rules",
+                reference=f"CR {c.rule_number}",
+                url=None
+            )
+            for c in rule_chunks
+        ]
 
         # Check for specific combat puzzle: Rapaz del campo de batalla + Ninja de horas tardías
         if ("rapaz" in msg_lower or "campo de batalla" in msg_lower) and ("ninja" in msg_lower or "horas tardías" in msg_lower):
@@ -120,10 +163,10 @@ class MTGOrchestrator:
                 "atacantes que no hayan asignado daño aún en este combate. Como el Ninja acaba de entrar y **no ha hecho daño todavía**, "
                 "**asigna sus 2 puntos de daño de combate al jugador defensor** y dispara su habilidad para hacerte robar una carta."
             )
-            citations = [
-                "Magic Comprehensive Rules (CR 702.48c) - Momento de activación de Ninjutsu",
-                "Magic Comprehensive Rules (CR 702.7b) - Segundo paso de daño de combate",
-                "Magic Comprehensive Rules (CR 510.4) - Asignación de daño de combate regular"
+            sources = [
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 702.48c", url=None),
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 702.7b", url=None),
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 510.4", url=None)
             ]
         elif "fases" in msg_lower or "turno" in msg_lower:
             reply = (
@@ -138,6 +181,11 @@ class MTGOrchestrator:
                 "4. **Segunda Fase Principal (Postcombat Main Phase)**: Segunda oportunidad para jugar tierras y hechizos de velocidad conjuro.\n"
                 "5. **Fase Final (Ending Phase - CR 512.1)**: Paso final (End step) y paso de limpieza (Cleanup step)."
             )
+            sources = [
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 500.1", url=None),
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 501.1", url=None),
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 505.1", url=None)
+            ]
         elif "maná" in msg_lower or "mana" in msg_lower:
             reply = (
                 "**Funcionamiento del Maná en Magic: The Gathering (CR 106.1)**\n\n"
@@ -147,88 +195,117 @@ class MTGOrchestrator:
                 "- **Colores**: Existen 5 colores: Blanco ({W}), Azul ({U}), Negro ({B}), Rojo ({R}) y Verde ({G}), además de maná incoloro ({C}).\n"
                 "- **Coste vs Valor**: El *Coste de maná* son los símbolos impresos en la carta (ej. {1}{W}); el *Valor de maná* (CMC) es la suma total numérica (ej. 2)."
             )
+            sources = [
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 106.1", url=None),
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 106.2", url=None),
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 202.1", url=None)
+            ]
         else:
-            # General RAG synthesis based on retrieved chunks
             chunks_text = "\n\n".join([f"**{c.title}** ({c.rule_number}): {c.content}" for c in rule_chunks])
-            reply = (
-                f"**Resolución según las Reglas Oficiales de Magic:**\n\n"
-                f"{chunks_text}"
-            )
+            reply = f"**Resolución según las Reglas Oficiales de Magic:**\n\n{chunks_text}"
 
         self.memory.add_assistant_message(
-            session_id=session_id,
+            conversation_id=conversation_id,
             content=reply,
-            sources=citations,
-            topic="RULES"
+            sources=sources,
+            cards=[],
+            topic=ResponseType.RULES
         )
 
-        return {
-            "reply": reply,
-            "intent": "RULES",
-            "sources": citations,
-            "cards": []
-        }
+        return AssistantResult(
+            type=ResponseType.RULES,
+            message=reply,
+            cards=[],
+            sources=sources,
+            active_filters=None
+        )
 
-    def _handle_card_search(self, session_id: str, message: str) -> Dict[str, Any]:
-        existing_filters = self.memory.get_last_card_filter(session_id)
-        active_filters = self._extract_search_filters(message, existing_filters)
+    def _handle_card_search(self, conversation_id: str, message: str) -> AssistantResult:
+        existing_filters = self.memory.get_last_card_filter(conversation_id)
+        active_raw = self._extract_search_filters(message, existing_filters)
 
-        cards = self.api_tool.search_cards(
-            color=active_filters.get("color"),
-            subtype=active_filters.get("subtype"),
-            card_type=active_filters.get("card_type"),
-            cmc=active_filters.get("cmc"),
-            max_cmc=active_filters.get("max_cmc"),
+        # Query tool with canonical filters
+        cards_raw = self.api_tool.search_cards(
+            color=active_raw.get("color"),
+            subtype=active_raw.get("subtype"),
+            card_type=active_raw.get("card_type"),
+            cmc=active_raw.get("cmc"),
+            max_cmc=active_raw.get("max_cmc"),
             limit=4
         )
 
-        cards_data = [c.model_dump() for c in cards]
+        cards: List[CardResult] = [
+            CardResult(
+                name=c.name,
+                mana_cost=c.mana_cost or None,
+                cmc=c.cmc,
+                type_line=c.type_line or None,
+                oracle_text=c.oracle_text or None,
+                image_url=c.image_url or None,
+                set_name=c.set_name or None
+            )
+            for c in cards_raw
+        ]
 
-        # Context explanation for multi-turn
-        filter_summary = []
-        if active_filters.get("color"):
-            filter_summary.append(f"color {active_filters['color']}")
-        if active_filters.get("subtype"):
-            filter_summary.append(f"subtipo {active_filters['subtype']}")
-        if active_filters.get("cmc") is not None:
-            filter_summary.append(f"coste exacto {active_filters['cmc']}")
-        elif active_filters.get("max_cmc") is not None:
-            filter_summary.append(f"coste <= {active_filters['max_cmc']}")
-
-        summary_str = ", ".join(filter_summary)
-
-        if cards:
-            lines = [f"He encontrado {len(cards)} cartas coincidentes con tu criterio (**{summary_str}**):\n"]
-            for c in cards:
-                img_md = f" ![{c.name}]({c.image_url})" if c.image_url else ""
-                lines.append(f"- **{c.name}** | Coste: {c.mana_cost or '{0}'} | Tipo: *{c.type_line}*{img_md}")
-            reply = "\n".join(lines)
-        else:
-            reply = f"No he encontrado cartas en la base de datos de MTG que coincidan con: **{summary_str}**."
-
-        self.memory.add_assistant_message(
-            session_id=session_id,
-            content=reply,
-            cards=cards_data,
-            topic="CARD_SEARCH",
-            card_filter=active_filters
+        # Typed active filters object
+        typed_filters = CardSearchFilters(
+            color=active_raw.get("color"),
+            subtype=active_raw.get("subtype"),
+            card_type=active_raw.get("card_type"),
+            cmc=active_raw.get("cmc"),
+            max_cmc=active_raw.get("max_cmc")
         )
 
-        return {
-            "reply": reply,
-            "intent": "CARD_SEARCH",
-            "active_filters": active_filters,
-            "cards": cards_data,
-            "sources": ["MTG REST API (https://api.magicthegathering.io/v1/cards)"]
-        }
+        filter_desc = []
+        if typed_filters.color:
+            filter_desc.append(f"color {typed_filters.color}")
+        if typed_filters.subtype:
+            filter_desc.append(f"subtipo {typed_filters.subtype}")
+        if typed_filters.cmc is not None:
+            filter_desc.append(f"coste exacto {typed_filters.cmc}")
+        elif typed_filters.max_cmc is not None:
+            filter_desc.append(f"coste <= {typed_filters.max_cmc}")
 
-    def _handle_custom_card(self, session_id: str, message: str) -> Dict[str, Any]:
+        desc_str = ", ".join(filter_desc)
+
+        if cards:
+            reply = f"He encontrado {len(cards)} cartas que cumplen tus criterios ({desc_str})."
+        else:
+            reply = f"No he encontrado cartas en la base de datos de MTG que coincidan con: {desc_str}."
+
+        sources = [
+            SourceRef(
+                kind="external_api",
+                title="Magic: The Gathering API",
+                reference="cards",
+                url="https://api.magicthegathering.io/v1/cards"
+            )
+        ]
+
+        self.memory.add_assistant_message(
+            conversation_id=conversation_id,
+            content=reply,
+            sources=sources,
+            cards=cards,
+            topic=ResponseType.CARD_SEARCH,
+            card_filter=active_raw
+        )
+
+        return AssistantResult(
+            type=ResponseType.CARD_SEARCH,
+            message=reply,
+            cards=cards,
+            sources=sources,
+            active_filters=typed_filters
+        )
+
+    def _handle_custom_card(self, conversation_id: str, message: str) -> AssistantResult:
         reply = (
             "### 🃏 Carta Custom Creada: Han Solo, Capitán del Halcón\n\n"
-            "* **Coste de Maná**: {1}{R}{W} (Coste de Maná Convertido: 3)\n"
+            "* **Coste de Maná**: `{1}{R}{W}` (CMC: 3)\n"
             "* **Color / Identidad**: Blanco-Rojo (Boros)\n"
             "* **Tipo de Carta**: Criatura Legendaria — Humano Bribón Piloto\n"
-            "* **Fuerza / Resistencia**: 3/2\n"
+            "* **Fuerza / Resistencia**: `3/2`\n"
             "* **Habilidades de Juego**:\n"
             "  * **Dañar primero** (*First strike*).\n"
             "  * *Disparó primero*: Siempre que Han Solo ataque o bloquee, si tienes una o menos cartas en tu mano, "
@@ -238,32 +315,35 @@ class MTGOrchestrator:
             "  > *«Nunca me digas las probabilidades.»*\n\n"
             "*Diseño balanceado respetando la filosofía del Color Pie (iniciativa agresiva roja y lealtad/coordinación blanca).*"
         )
-        custom_card = {
-            "name": "Han Solo, Capitán del Halcón",
-            "mana_cost": "{1}{R}{W}",
-            "cmc": 3,
-            "type_line": "Legendary Creature — Human Rogue Pilot",
-            "power": "3",
-            "toughness": "2",
-            "oracle_text": "Dañar primero. Disparó primero: Siempre que Han Solo ataque...",
-            "image_url": "https://raw.githubusercontent.com/fede/placeholder/main/han_solo_mtg.png"
-        }
 
-        self.memory.add_assistant_message(
-            session_id=session_id,
-            content=reply,
-            cards=[custom_card],
-            topic="CUSTOM_CARD"
+        # SPEC 01 / SPEC 04: Do not fake an image url when none exists
+        custom_card = CardResult(
+            name="Han Solo, Capitán del Halcón",
+            mana_cost="{1}{R}{W}",
+            cmc=3.0,
+            type_line="Legendary Creature — Human Rogue Pilot",
+            oracle_text="Dañar primero. Disparó primero: Siempre que Han Solo ataque o bloquee, si tienes una o menos cartas...",
+            image_url=None,
+            set_name=None
         )
 
-        return {
-            "reply": reply,
-            "intent": "CUSTOM_CARD",
-            "cards": [custom_card],
-            "sources": ["Wizards of the Coast Color Pie Design Guidelines"]
-        }
+        self.memory.add_assistant_message(
+            conversation_id=conversation_id,
+            content=reply,
+            sources=[],
+            cards=[custom_card],
+            topic=ResponseType.CUSTOM_CARD
+        )
 
-    def _handle_general(self, session_id: str, message: str) -> Dict[str, Any]:
+        return AssistantResult(
+            type=ResponseType.CUSTOM_CARD,
+            message=reply,
+            cards=[custom_card],
+            sources=[],
+            active_filters=None
+        )
+
+    def _handle_general(self, conversation_id: str, message: str) -> AssistantResult:
         reply = (
             "¡Hola! Soy tu asistente y juez de soporte para **Magic: The Gathering** del Call Center.\n\n"
             "Puedo ayudarte con:\n"
@@ -271,12 +351,19 @@ class MTGOrchestrator:
             "2. **Interacciones complejas**: Dudas de combate (ej. *Dañar primero + Ninjutsu*).\n"
             "3. **Búsqueda de cartas**: Búsqueda por color, subtipos y coste vía API oficial de MTG.\n"
             "4. **Creación de cartas custom**: Diseñar cartas personalizadas y balanceadas.\n\n"
-            "¿Qué consulta tienes hoy?"
+            "¿En qué puedo ayudarte?"
         )
-        self.memory.add_assistant_message(session_id=session_id, content=reply, topic="CONVERSATION")
-        return {
-            "reply": reply,
-            "intent": "CONVERSATION",
-            "sources": [],
-            "cards": []
-        }
+        self.memory.add_assistant_message(
+            conversation_id=conversation_id,
+            content=reply,
+            sources=[],
+            cards=[],
+            topic=ResponseType.CONVERSATION
+        )
+        return AssistantResult(
+            type=ResponseType.CONVERSATION,
+            message=reply,
+            cards=[],
+            sources=[],
+            active_filters=None
+        )
