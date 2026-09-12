@@ -1,42 +1,8 @@
 # MTG Call Center AI Assistant
 
-Asistente de soporte especializado para jugadores y operadores de Call Center de **Magic: The Gathering (MTG)**.
-
----
-
-## 🏛️ Arquitectura del Sistema (Clean Boundary)
-
-El proyecto sigue una separación estricta de capas comunicadas exclusivamente por **HTTP/JSON**:
-
-```text
-                    ┌─────────────────────────┐
-                    │        Streamlit        │
-                    │   (src/ui/app_streamlit)│
-                    └────────────┬────────────┘
-                                 │
-                            HTTP / JSON
-                         (MTGAssistantClient)
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │         FastAPI         │
-                    │      (src/api/app)      │
-                    └────────────┬────────────┘
-                                 │
-                           ChatRequest /
-                           ChatResponse
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │     MTGOrchestrator     │
-                    │   (1 Router determinista)
-                    └────────────┬────────────┘
-                                 │
-            ┌────────────────────┼────────────────────┐
-            ▼                    ▼                    ▼
-     Rules Service           MTG Tool          Conversation Memory
-     (CR 100-900)       (magicthegathering.io)  (Filtros acumulados)
-```
+> 🧊 **ARQUITECTURA Y ALCANCE CONGELADOS**  
+> Este proyecto sigue estrictamente el contrato establecido en [`AGENT.md`](AGENT.md).  
+> **Objetivo**: Código limpio, 100% testeado, documentado y defendible en entrevista técnica. Cero sobreingeniería.
 
 ---
 
