@@ -1,0 +1,12 @@
+prefix          = "mtg-assistant"
+environment     = "prod"
+location        = "westeurope"
+openai_location = "swedencentral"
+container_image = "ghcr.io/your-org/mtg-azure-assistant:latest"
+app_port        = 8000
+
+tags = {
+  Project     = "MTG Call Center Assistant"
+  Environment = "Production"
+  ManagedBy   = "Terraform"
+}

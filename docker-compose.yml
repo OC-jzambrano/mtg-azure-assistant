@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mtg-postgres-vector
+    restart: always
+    environment:
+      POSTGRES_DB: mtg_callcenter_db
+      POSTGRES_USER: mtg_admin
+      POSTGRES_PASSWORD: mtg_secure_password_123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/services/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mtg_admin -d mtg_callcenter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

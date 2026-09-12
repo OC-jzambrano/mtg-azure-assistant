@@ -1,0 +1,84 @@
+{
+  "source": "Wizards of the Coast - Magic: The Gathering Comprehensive Rules & Basic Rulebook",
+  "version": "2024-Update",
+  "language": "es",
+  "rules": [
+    {
+      "id": "CR-500",
+      "category": "Estructura del Turno",
+      "title": "Fases del Turno de Juego",
+      "rule_number": "500.1",
+      "content": "Un turno consiste en cinco fases en este orden: fase inicial (beginning phase), primera fase principal (precombat main phase), fase de combate (combat phase), segunda fase principal (postcombat main phase) y fase final (ending phase). Ninguna parte del turno puede omitirse a menos que una regla o efecto lo indique específicamente.",
+      "subrules": [
+        {
+          "number": "501.1",
+          "title": "Fase Inicial",
+          "content": "La fase inicial consta de tres pasos en este orden: paso de enderezar (untap step), paso de mantenimiento (upkeep step) y paso de robar (draw step)."
+        },
+        {
+          "number": "505.1",
+          "title": "Fases Principales",
+          "content": "Hay dos fases principales en un turno: la primera (antes del combate) y la segunda (después del combate). En una fase principal, el jugador activo puede lanzar cualquier tipo de hechizo (criaturas, artefactos, encantamientos, conjuros, etc.) y jugar una tierra si tiene la prioridad y la pila está vacía."
+        },
+        {
+          "number": "506.1",
+          "title": "Fase de Combate",
+          "content": "La fase de combate consta de cinco pasos en este orden: paso de inicio del combate, paso de declarar atacantes, paso de declarar bloqueadores, paso de daño de combate y paso de final del combate. Si al menos una criatura atacante o bloqueadora tiene dañar primero o dañar dos veces, la fase de combate tiene dos pasos de daño de combate."
+        },
+        {
+          "number": "512.1",
+          "title": "Fase Final",
+          "content": "La fase final consta de dos pasos: el paso final (end step) y el paso de limpieza (cleanup step). En el paso de limpieza, el jugador activo descarta hasta su tamaño máximo de mano y se elimina todo el daño de los permanentes."
+        }
+      ]
+    },
+    {
+      "id": "CR-106",
+      "category": "Sistema de Maná",
+      "title": "Maná y Reserva de Maná",
+      "rule_number": "106.1",
+      "content": "El maná es el recurso principal usado para pagar costes en el juego. Las tierras y otras fuentes producen maná, el cual se coloca en la reserva de maná (mana pool) de un jugador. El maná no gastado se vacía de la reserva al final de cada paso y fase.",
+      "subrules": [
+        {
+          "number": "106.2",
+          "title": "Tipos y Colores de Maná",
+          "content": "Hay cinco colores de maná: blanco ({W}), azul ({U}), negro ({B}), rojo ({R}) y verde ({G}). El maná incoloro ({C}) no es un color."
+        },
+        {
+          "number": "202.1",
+          "title": "Coste de Maná vs Valor de Maná",
+          "content": "El coste de maná de una carta son los símbolos de maná impresos en su esquina superior derecha. El valor de maná (anteriormente coste de maná convertido o CMC) es un número total entero que representa la cantidad de maná sin importar el color."
+        }
+      ]
+    },
+    {
+      "id": "CR-702.7",
+      "category": "Habilidades de Combate",
+      "title": "Dañar primero (First Strike)",
+      "rule_number": "702.7a",
+      "content": "Dañar primero es una habilidad estática que modifica las reglas para el paso de daño de combate. Si al menos una criatura atacante o bloqueadora tiene dañar primero o dañar dos veces cuando comienza el paso de daño de combate, las únicas criaturas que asignan daño de combate en ese paso son aquellas con dañar primero o dañar dos veces.",
+      "subrules": [
+        {
+          "number": "702.7b",
+          "title": "Segundo paso de daño de combate",
+          "content": "Después del primer paso de daño de combate, el juego no avanza al paso de fin del combate. En su lugar, el juego crea un segundo paso de daño de combate. Las criaturas restantes que no asignaron daño en el primer paso (porque no tenían dañar primero ni dañar dos veces), así como las criaturas con dañar dos veces, asignan su daño de combate en este segundo paso."
+        }
+      ]
+    },
+    {
+      "id": "CR-702.48",
+      "category": "Habilidades de Combate",
+      "title": "Ninjutsu",
+      "rule_number": "702.48a",
+      "content": "Ninjutsu es una habilidad activada que funciona sólo mientras la carta con ninjutsu está en la mano de un jugador. 'Ninjutsu [coste]' significa: '[Coste], mostrar esta carta de tu mano, regresar una criatura atacante no bloqueada que controlas a la mano de su propietario: Pon esta carta en el campo de batalla desde tu mano girada y atacando.'",
+      "subrules": [
+        {
+          "number": "702.48c",
+          "title": "Momento de activación de Ninjutsu",
+          "content": "Una criatura que es declarada atacante y no es bloqueada sigue siendo una criatura atacante no bloqueada durante todo el resto del combate (paso de declarar bloqueadores, pasos de daño de combate y paso de fin del combate). Por tanto, la habilidad de ninjutsu puede activarse válidamente en el paso de declarar bloqueadores, o en cualquier momento del paso de daño de combate, incluso después de que se haya resuelto el daño de dañar primero.",
+          "interaction_example": "Si una criatura atacante con dañar primero no es bloqueada y asigna su daño en el primer paso de daño de combate, el jugador activo recibe prioridad durante ese paso tras resolverse el daño. El jugador puede activar Ninjutsu regresando esa criatura. La criatura con Ninjutsu entra al campo de batalla atacando. Como la criatura con Ninjutsu no asignó daño en el paso de dañar primero, asignará normalmente su daño de combate regular en el segundo paso de daño de combate."
+        }
+      ]
+    }
+  ]
+}
