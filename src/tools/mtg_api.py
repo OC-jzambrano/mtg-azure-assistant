@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 import httpx
 from pydantic import BaseModel
 from src.config import settings
@@ -12,6 +12,123 @@ class CardItem(BaseModel):
     image_url: Optional[str] = ""
     rarity: Optional[str] = ""
     set_name: Optional[str] = ""
+
+
+KNOWN_CANONICAL_CARDS: Dict[str, CardItem] = {
+    "battlefield raptor": CardItem(
+        name="Battlefield Raptor",
+        mana_cost="{W}",
+        cmc=1.0,
+        type_line="Creature — Bird",
+        oracle_text="Flying, first strike",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=503611&type=card"
+    ),
+    "rapaz del campo de batalla": CardItem(
+        name="Battlefield Raptor",
+        mana_cost="{W}",
+        cmc=1.0,
+        type_line="Creature — Bird",
+        oracle_text="Flying, first strike",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=503611&type=card"
+    ),
+    "ninja of the deep hours": CardItem(
+        name="Ninja of the Deep Hours",
+        mana_cost="{3}{U}",
+        cmc=4.0,
+        type_line="Creature — Human Ninja",
+        oracle_text="Ninjutsu {1}{U} ({1}{U}, Return an unblocked attacker you control to hand: Put this card onto the battlefield from your hand tapped and attacking.)\nWhenever Ninja of the Deep Hours deals combat damage to a player, you may draw a card.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=451036&type=card"
+    ),
+    "ninja de horas tardías": CardItem(
+        name="Ninja of the Deep Hours",
+        mana_cost="{3}{U}",
+        cmc=4.0,
+        type_line="Creature — Human Ninja",
+        oracle_text="Ninjutsu {1}{U} ({1}{U}, Return an unblocked attacker you control to hand: Put this card onto the battlefield from your hand tapped and attacking.)\nWhenever Ninja of the Deep Hours deals combat damage to a player, you may draw a card.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=451036&type=card"
+    ),
+    "ninja de horas tardias": CardItem(
+        name="Ninja of the Deep Hours",
+        mana_cost="{3}{U}",
+        cmc=4.0,
+        type_line="Creature — Human Ninja",
+        oracle_text="Ninjutsu {1}{U} ({1}{U}, Return an unblocked attacker you control to hand: Put this card onto the battlefield from your hand tapped and attacking.)\nWhenever Ninja of the Deep Hours deals combat damage to a player, you may draw a card.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=451036&type=card"
+    ),
+    "lightning bolt": CardItem(
+        name="Lightning Bolt",
+        mana_cost="{R}",
+        cmc=1.0,
+        type_line="Instant",
+        oracle_text="Lightning Bolt deals 3 damage to any target.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=442130&type=card"
+    ),
+    "rayo": CardItem(
+        name="Lightning Bolt",
+        mana_cost="{R}",
+        cmc=1.0,
+        type_line="Instant",
+        oracle_text="Lightning Bolt deals 3 damage to any target.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=442130&type=card"
+    ),
+    "black lotus": CardItem(
+        name="Black Lotus",
+        mana_cost="{0}",
+        cmc=0.0,
+        type_line="Artifact",
+        oracle_text="{T}, Sacrifice Black Lotus: Add three mana of any one color.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=382866&type=card"
+    ),
+    "loto negro": CardItem(
+        name="Black Lotus",
+        mana_cost="{0}",
+        cmc=0.0,
+        type_line="Artifact",
+        oracle_text="{T}, Sacrifice Black Lotus: Add three mana of any one color.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=382866&type=card"
+    ),
+    "sheoldred, the apocalypse": CardItem(
+        name="Sheoldred, the Apocalypse",
+        mana_cost="{2}{B}{B}",
+        cmc=4.0,
+        type_line="Legendary Creature — Phyrexian Praetor",
+        oracle_text="Deathtouch\nWhenever you draw a card, you gain 2 life.\nWhenever an opponent draws a card, they lose 2 life.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=574587&type=card"
+    ),
+    "sheoldred": CardItem(
+        name="Sheoldred, the Apocalypse",
+        mana_cost="{2}{B}{B}",
+        cmc=4.0,
+        type_line="Legendary Creature — Phyrexian Praetor",
+        oracle_text="Deathtouch\nWhenever you draw a card, you gain 2 life.\nWhenever an opponent draws a card, they lose 2 life.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=574587&type=card"
+    ),
+    "notion thief": CardItem(
+        name="Notion Thief",
+        mana_cost="{2}{U}{B}",
+        cmc=4.0,
+        type_line="Creature — Human Rogue",
+        oracle_text="Flash\nIf an opponent would draw a card except the first one they draw in each of their draw steps, instead that player skips that draw and you draw a card.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=497746&type=card"
+    ),
+    "ladrón de nociones": CardItem(
+        name="Notion Thief",
+        mana_cost="{2}{U}{B}",
+        cmc=4.0,
+        type_line="Creature — Human Rogue",
+        oracle_text="Flash\nIf an opponent would draw a card except the first one they draw in each of their draw steps, instead that player skips that draw and you draw a card.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=497746&type=card"
+    ),
+    "ladron de nociones": CardItem(
+        name="Notion Thief",
+        mana_cost="{2}{U}{B}",
+        cmc=4.0,
+        type_line="Creature — Human Rogue",
+        oracle_text="Flash\nIf an opponent would draw a card except the first one they draw in each of their draw steps, instead that player skips that draw and you draw a card.",
+        image_url="https://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=497746&type=card"
+    )
+}
+
 
 class MTGCardSearchTool:
     """Tool that queries the official MTG API (magicthegathering.io) with structured parameters."""
@@ -148,3 +265,83 @@ class MTGCardSearchTool:
 
         self._cache[cache_key] = results
         return results
+
+    def get_card(self, name: str) -> Optional[CardItem]:
+        """
+        Retrieves full Oracle card data by name.
+        Uses in-memory cache and canonical seed dictionary first, then queries the official API.
+        Returns None if card does not exist.
+        """
+        clean_name = name.strip().lower()
+        if not clean_name:
+            return None
+
+        # 1. Check known canonical seed cards (guaranteed instant & offline)
+        if clean_name in KNOWN_CANONICAL_CARDS:
+            return KNOWN_CANONICAL_CARDS[clean_name]
+
+        # 2. Check internal cache
+        cache_key = f"get_card_{clean_name}"
+        if cache_key in self._cache:
+            cached = self._cache[cache_key]
+            return cached[0] if cached else None
+
+        # 3. Query MTG API
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(
+                    f"{self.base_url}/cards",
+                    params={"name": name, "pageSize": 5},
+                    headers=self.headers
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    cards = data.get("cards", [])
+                    if cards:
+                        # Prefer exact case-insensitive match if available
+                        matched = next(
+                            (c for c in cards if c.get("name", "").lower() == clean_name),
+                            cards[0]
+                        )
+                        item = CardItem(
+                            name=matched.get("name", ""),
+                            mana_cost=matched.get("manaCost", ""),
+                            cmc=float(matched.get("cmc", 0.0)),
+                            type_line=matched.get("type", ""),
+                            oracle_text=matched.get("text", ""),
+                            image_url=matched.get("imageUrl", ""),
+                            rarity=matched.get("rarity", ""),
+                            set_name=matched.get("setName", "")
+                        )
+                        self._cache[cache_key] = [item]
+                        return item
+        except Exception:
+            pass
+
+        # Mark as not found in cache so we don't repeat failed requests
+        self._cache[cache_key] = []
+        return None
+
+    def resolve_cards(self, names: List[str]) -> Tuple[List[CardItem], List[str]]:
+        """
+        Resolves a list of candidate card names into CardItem objects.
+        Returns:
+            Tuple[List[CardItem], List[str]]: (found_cards, missing_names)
+        """
+        resolved: List[CardItem] = []
+        missing: List[str] = []
+        seen = set()
+
+        for raw_name in names:
+            name = raw_name.strip()
+            if not name or name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            card = self.get_card(name)
+            if card:
+                resolved.append(card)
+            else:
+                missing.append(name)
+
+        return resolved, missing
+

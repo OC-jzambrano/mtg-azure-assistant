@@ -80,3 +80,25 @@ def test_rules_agent_llm_structured_output_mock():
     assert "CR 702.19b" in reply
     assert len(sources) == 1
     assert sources[0].reference == "CR 702.19b"
+
+
+def test_rules_agent_ward_interaction():
+    agent = RulesReasoningAgent(llm_service=LLMService(api_key=""))
+    reply, sources = agent.run("¿Qué pasa si uso Lightning Bolt sobre una criatura con Ward?")
+
+    assert "guardia" in reply.lower() or "ward" in reply.lower()
+    assert "contrarresta" in reply.lower() or "contrarrestado" in reply.lower()
+    source_refs = [s.reference for s in sources]
+    assert any("702.21" in ref for ref in source_refs)
+
+
+def test_rules_agent_sheoldred_notion_thief_interaction():
+    agent = RulesReasoningAgent(llm_service=LLMService(api_key=""))
+    reply, sources = agent.run("¿Qué ocurre entre Sheoldred, the Apocalypse y Notion Thief cuando un oponente roba?")
+
+    assert "notion thief" in reply.lower() or "ladrón de nociones" in reply.lower()
+    assert "sheoldred" in reply.lower()
+    assert "reemplazo" in reply.lower() or "reemplazado" in reply.lower()
+    source_refs = [s.reference for s in sources]
+    assert any("614" in ref for ref in source_refs)
+

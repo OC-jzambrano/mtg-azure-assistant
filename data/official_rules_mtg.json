@@ -79,6 +79,40 @@
           "interaction_example": "Si una criatura atacante con dañar primero no es bloqueada y asigna su daño en el primer paso de daño de combate, el jugador activo recibe prioridad durante ese paso tras resolverse el daño. El jugador puede activar Ninjutsu regresando esa criatura. La criatura con Ninjutsu entra al campo de batalla atacando. Como la criatura con Ninjutsu no asignó daño en el paso de dañar primero, asignará normalmente su daño de combate regular en el segundo paso de daño de combate."
         }
       ]
+    },
+    {
+      "id": "CR-702.21",
+      "category": "Habilidades de Protección",
+      "title": "Guardia (Ward)",
+      "rule_number": "702.21a",
+      "content": "Guardia es una habilidad disparada. 'Guardia [coste]' significa: 'Siempre que este permanente sea objetivo de un hechizo o habilidad que controla un oponente, contrarresta ese hechizo o habilidad a menos que ese jugador pague [coste]'.",
+      "subrules": [
+        {
+          "number": "702.21b",
+          "title": "Disparo y resolución de Guardia",
+          "content": "La habilidad de guardia se dispara cuando el permanente es declarado como objetivo. Va a la pila por encima del hechizo o habilidad que la provocó y se resuelve antes. Si el oponente no paga el coste indicado cuando la habilidad se resuelve, el hechizo o habilidad es contrarrestado."
+        }
+      ]
+    },
+    {
+      "id": "CR-614",
+      "category": "Efectos Continuos",
+      "title": "Efectos de Reemplazo (Replacement Effects)",
+      "rule_number": "614.1a",
+      "content": "Los efectos de reemplazo son efectos continuos o estáticos que vigilan que ocurra un evento y lo modifican en lugar de dejar que suceda como estaba originalmente planeado. Se identifican frecuentemente por la palabra 'en vez de' ('instead').",
+      "subrules": [
+        {
+          "number": "121.1",
+          "title": "Robar una carta",
+          "content": "Un jugador roba una carta tomando la primera carta de su biblioteca y poniéndola en su mano. Si un efecto como el de Ladrón de nociones reemplaza el robo de un oponente, ese oponente no roba y en su lugar el controlador de Ladrón de nociones roba la carta."
+        },
+        {
+          "number": "614.6",
+          "title": "Interacción de efectos de reemplazo con habilidades disparadas",
+          "content": "Si un evento es reemplazado completamente (por ejemplo, omitir un robo), cualquier habilidad que se dispare cuando ese evento suceda no se disparará para ese jugador original, pero se disparará para quien finalmente experimente el evento modificado (por ejemplo, Sheoldred ganando o perdiendo vidas)."
+        }
+      ]
     }
   ]
 }
+

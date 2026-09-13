@@ -57,8 +57,12 @@ class MTGOrchestrator:
         rule_signals = [
             "fases", "fase", "turno", "maná", "mana", "reserva", "pool",
             "daña primero", "daño primero", "first strike", "ninjutsu", "ninja",
-            "interacción", "interaccion", "reglas", "reglamento", "aplico el daño",
-            "entra el daño", "hace daño", "bloqueo", "prioridad", "pila", "stack"
+            "interacción", "interaccion", "interactúa", "interactua", "interactúan", "interactuan",
+            "reglas", "reglamento", "aplico el daño", "entra el daño", "hace daño",
+            "bloqueo", "bloqueadores", "prioridad", "pila", "stack",
+            "ocurre entre", "pasa si", "ward", "guardia", "robar", "roba", "robo",
+            "contrarresta", "counter", "reemplazo", "replacement", "dispara", "disparada",
+            "habilidad", "habilidades", "efecto", "efectos", "objetivo", "target"
         ]
         if any(w in msg for w in rule_signals):
             return ResponseType.RULES
@@ -144,22 +148,155 @@ class MTGOrchestrator:
         else:
             return self._handle_general(conversation_id, message)
 
+    def _extract_card_names(self, message: str) -> List[str]:
+        """
+        Extracts candidate card names from a rules or interaction query.
+        Handles quoted names, relational phrases ('entre X y Y', 'uso X sobre Y', 'interactúa X con Y'),
+        and known canonical card identifiers.
+        """
+        candidates: List[str] = []
+        msg = message.strip()
+
+        # 1. Quoted card names: "Lightning Bolt", 'Sheoldred'
+        quoted = re.findall(r"[\"']([^\"']+)[\"']", msg)
+        for q in quoted:
+            if len(q.strip()) > 1:
+                candidates.append(q.strip())
+
+        # 2. Relational patterns:
+        # Pattern: 'entre X y Y' / 'entre X e Y'
+        m_entre = re.search(
+            r"\bentre\s+([A-Za-zÀ-ÿ0-9\s,'-]+?)\s+(?:y|e)\s+([A-Za-zÀ-ÿ0-9\s,'-]+?)(?:\s*(?:cuando|si|en|con|al|\?|$)|$)",
+            msg,
+            re.IGNORECASE
+        )
+        if m_entre:
+            c1 = re.sub(r"[?,.]$", "", m_entre.group(1)).strip()
+            c2 = re.sub(r"[?,.]$", "", m_entre.group(2)).strip()
+            if c1 and len(c1) > 2:
+                candidates.append(c1)
+            if c2 and len(c2) > 2:
+                candidates.append(c2)
+
+        # Pattern: 'interactúa X con Y' / 'interactúan X y Y'
+        m_inter = re.search(
+            r"\b(?:interactúa|interactua|interactúan|interactuan|ocurre entre)\s+([A-Za-zÀ-ÿ0-9\s,'-]+?)\s+(?:con|y|e)\s+([A-Za-zÀ-ÿ0-9\s,'-]+?)(?:\s*(?:cuando|si|en|\?|$)|$)",
+            msg,
+            re.IGNORECASE
+        )
+        if m_inter:
+            c1 = re.sub(r"[?,.]$", "", m_inter.group(1)).strip()
+            c2 = re.sub(r"[?,.]$", "", m_inter.group(2)).strip()
+            if c1: candidates.append(c1)
+            if c2: candidates.append(c2)
+
+        # Pattern: 'uso X sobre Y' / 'lanzo X a Y' / 'juego X con Y'
+        m_uso = re.search(
+            r"\b(?:uso|usar|lanzo|lanzar|juego|jugar|casteo|castear)\s+([A-Za-zÀ-ÿ0-9\s,'-]+?)\s+(?:sobre|a|contra|hacia)\s+(?:una criatura con|un permanente con|el|la|un|una)?\s*([A-Za-zÀ-ÿ0-9\s,'-]+?)(?:\s*(?:cuando|si|en|\?|$)|$)",
+            msg,
+            re.IGNORECASE
+        )
+        if m_uso:
+            c1 = re.sub(r"[?,.]$", "", m_uso.group(1)).strip()
+            if c1 and len(c1) > 2:
+                candidates.append(c1)
+
+        # 3. Known canonical card names scanner
+        known_keywords = [
+            "battlefield raptor", "rapaz del campo de batalla",
+            "ninja of the deep hours", "ninja de horas tardías", "ninja de horas tardias",
+            "lightning bolt", "rayo",
+            "black lotus", "loto negro",
+            "sheoldred, the apocalypse", "sheoldred",
+            "notion thief", "ladrón de nociones", "ladron de nociones"
+        ]
+        msg_lower = msg.lower()
+        for kw in known_keywords:
+            if kw in msg_lower:
+                candidates.append(kw)
+
+        # Deduplicate preserving order
+        unique_candidates: List[str] = []
+        seen = set()
+        for c in candidates:
+            clean = re.sub(r"^(?:mi|tu|su|un|una|el|la)\s+", "", c, flags=re.IGNORECASE).strip()
+            clean = re.sub(r"[?,.!]$", "", clean).strip()
+            if clean and clean.lower() not in seen:
+                seen.add(clean.lower())
+                unique_candidates.append(clean)
+
+        return unique_candidates
+
     def _handle_rules(self, conversation_id: str, message: str) -> AssistantResult:
-        rule_chunks = self.rag.retrieve_rules(message, top_k=3)
-        reply, sources = self.rules_agent.run(message=message, rule_chunks=rule_chunks)
+        # 1. Multi-source entity extraction: Identify cards mentioned in natural language
+        card_candidates = self._extract_card_names(message)
+        resolved_cards: List[CardItem] = []
+        missing_cards: List[str] = []
+
+        if card_candidates:
+            resolved_cards, missing_cards = self.api_tool.resolve_cards(card_candidates)
+
+        # 2. Honest validation: If user mentions a card name that doesn't exist, do NOT hallucinate
+        if missing_cards:
+            missing_str = "', '".join(missing_cards)
+            reply = f"No pude identificar una carta llamada '{missing_str}'. ¿Puedes comprobar el nombre?"
+            self.memory.add_assistant_message(
+                conversation_id=conversation_id,
+                content=reply,
+                sources=[],
+                cards=[],
+                topic=ResponseType.RULES
+            )
+            return AssistantResult(
+                type=ResponseType.RULES,
+                message=reply,
+                cards=[],
+                sources=[],
+                active_filters=None
+            )
+
+        # Convert resolved CardItem to domain CardResult
+        cards_typed: List[CardResult] = [
+            CardResult(
+                name=c.name,
+                mana_cost=c.mana_cost or None,
+                cmc=c.cmc,
+                type_line=c.type_line or None,
+                oracle_text=c.oracle_text or None,
+                image_url=c.image_url or None,
+                set_name=c.set_name or None
+            )
+            for c in resolved_cards
+        ]
+
+        # 3. Contextual RAG query expansion with verified card facts
+        rag_query = message
+        if cards_typed:
+            card_names_str = " ".join([c.name for c in cards_typed])
+            card_texts_str = " ".join([c.oracle_text or "" for c in cards_typed])
+            rag_query = f"{message} {card_names_str} {card_texts_str}"
+
+        rule_chunks = self.rag.retrieve_rules(rag_query, top_k=3)
+
+        # 4. Delegate to RulesReasoningAgent with both sources (Canonical Rules + Oracle Cards)
+        reply, sources = self.rules_agent.run(
+            message=message,
+            rule_chunks=rule_chunks,
+            cards=cards_typed
+        )
 
         self.memory.add_assistant_message(
             conversation_id=conversation_id,
             content=reply,
             sources=sources,
-            cards=[],
+            cards=cards_typed,
             topic=ResponseType.RULES
         )
 
         return AssistantResult(
             type=ResponseType.RULES,
             message=reply,
-            cards=[],
+            cards=cards_typed,
             sources=sources,
             active_filters=None
         )

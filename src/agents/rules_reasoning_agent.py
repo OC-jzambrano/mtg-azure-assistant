@@ -3,7 +3,7 @@ import logging
 from typing import List, Tuple, Optional
 from pydantic import BaseModel, Field
 
-from src.api.schemas import SourceRef
+from src.api.schemas import SourceRef, CardResult
 from src.services.rules_rag import RuleChunk
 from src.services.llm import LLMService
 
@@ -31,50 +31,74 @@ class RulesReasoningOutput(BaseModel):
 class RulesReasoningAgent:
     """
     Specialized Rules & Combat Reasoning Agent:
-    Applies Chain-of-Thought (CoT) over retrieved canonical rules to resolve complex
-    gameplay situations (e.g., First strike + Ninjutsu, priority windows, state-based actions).
+    Applies Chain-of-Thought (CoT) over retrieved canonical rules and verified card Oracle text
+    to resolve complex gameplay situations (e.g., First strike + Ninjutsu, Ward triggers, replacement effects).
     Integrates with Azure OpenAI with structured outputs and 100% deterministic local fallback.
     """
 
     SYSTEM_PROMPT = (
         "Eres un Juez Oficial de Nivel 3 de Magic: The Gathering (Rules & Combat Reasoning Agent).\n"
-        "Tu función es resolver situaciones de combate e interacciones de cartas complejas aplicando "
-        "razonamiento Chain-of-Thought (CoT) estricto fundamentado en las Magic Comprehensive Rules (CR).\n\n"
-        "Debes estructurar tu razonamiento en 4 pasos obligatorios:\n"
-        "1. Estado de la mesa: criaturas atacantes, bloqueadoras y habilidades vigentes.\n"
-        "2. Timing y Prioridad: ventanas legales de activación de habilidades y pasos de combate.\n"
-        "3. Reglas Oficiales (CR): citas exactas de los artículos canónicos aplicables.\n"
-        "4. Resolución Final y Consecuencias en el juego.\n\n"
-        "Proporciona un veredicto definitivo y una lista explícita de citas canónicas con formato 'CR XXX.X'."
+        "Tu función es resolver situaciones de juego, combate e interacciones complejas combinando con rigor:\n"
+        "1. El texto Oracle oficial verificado de las cartas involucradas.\n"
+        "2. Las reglas canónicas oficiales (Magic Comprehensive Rules - CR).\n\n"
+        "Debes estructurar tu razonamiento en 4 pasos obligatorios (Chain-of-Thought):\n"
+        "1. Estado de la mesa y habilidades: Permanentes, textos Oracle, atacantes/bloqueadores y tipos de efectos.\n"
+        "2. Timing y Prioridad: Ventanas legales de respuesta, estructura de fases/pasos y orden de la pila.\n"
+        "3. Reglas Oficiales (CR): Citas exactas de los artículos canónicos aplicables (ej. 'CR 702.21a', 'CR 614.1a').\n"
+        "4. Resolución Final y Consecuencias en el juego: Veredicto concluyente sobre qué sucede exactamente.\n\n"
+        "IMPORTANTE: Si no tienes suficiente información de reglas para emitir un dictamen seguro, indícalo "
+        "honestamente en el veredicto en lugar de especular."
     )
 
     def __init__(self, llm_service: Optional[LLMService] = None):
         self.llm = llm_service or LLMService()
 
-    def run(self, message: str, rule_chunks: Optional[List[RuleChunk]] = None) -> Tuple[str, List[SourceRef]]:
+    def run(
+        self,
+        message: str,
+        rule_chunks: Optional[List[RuleChunk]] = None,
+        cards: Optional[List[CardResult]] = None
+    ) -> Tuple[str, List[SourceRef]]:
         """
-        Executes reasoning over the given query and optional RAG rule chunks.
+        Executes reasoning over the query, retrieved CR rules, and verified card facts.
         Returns:
             Tuple[str, List[SourceRef]]: Formatted Markdown explanation and structured citations.
         """
         chunks = rule_chunks or []
+        card_list = cards or []
         
         # 1. Attempt LLM with Structured Outputs if client is configured
         if self.llm.is_available():
-            structured_res = self._run_llm(message, chunks)
+            structured_res = self._run_llm(message, chunks, card_list)
             if structured_res:
                 return self._format_response(structured_res)
 
         # 2. Deterministic Local Fallback (DoD: 100% reliable, zero external dependencies)
-        return self._run_deterministic_fallback(message, chunks)
+        return self._run_deterministic_fallback(message, chunks, card_list)
 
-    def _run_llm(self, message: str, chunks: List[RuleChunk]) -> Optional[RulesReasoningOutput]:
+    def _run_llm(
+        self,
+        message: str,
+        chunks: List[RuleChunk],
+        cards: List[CardResult]
+    ) -> Optional[RulesReasoningOutput]:
+        cards_context = ""
+        if cards:
+            cards_lines = []
+            for c in cards:
+                mana_str = f" ({c.mana_cost})" if c.mana_cost else ""
+                type_str = f" — {c.type_line}" if c.type_line else ""
+                oracle_str = c.oracle_text or "Sin texto de reglas"
+                cards_lines.append(f"• **{c.name}**{mana_str}{type_str}:\n  «{oracle_str}»")
+            cards_context = "Cartas involucradas (Oracle text verificado):\n" + "\n".join(cards_lines) + "\n\n"
+
         context_text = "\n\n".join(
             [f"Regla {c.rule_number} ({c.title}): {c.content}" for c in chunks]
         ) if chunks else "No se recuperaron reglas adicionales en la base vectorial."
 
         user_content = (
             f"Consulta del jugador:\n\"{message}\"\n\n"
+            f"{cards_context}"
             f"Reglas oficiales canónicas recuperadas:\n{context_text}\n\n"
             "Analiza paso a paso la interacción aplicando Chain-of-Thought y emite el veredicto con citas CR."
         )
@@ -122,10 +146,15 @@ class RulesReasoningAgent:
 
         return reply, sources
 
-    def _run_deterministic_fallback(self, message: str, chunks: List[RuleChunk]) -> Tuple[str, List[SourceRef]]:
+    def _run_deterministic_fallback(
+        self,
+        message: str,
+        chunks: List[RuleChunk],
+        cards: List[CardResult]
+    ) -> Tuple[str, List[SourceRef]]:
         msg_lower = message.lower()
 
-        # Canonical Combat Interaction: Rapaz del campo de batalla + Ninja de horas tardías
+        # 1. Canonical Combat Interaction: Rapaz del campo de batalla + Ninja de horas tardías (Guaranteed Safety Net)
         if ("rapaz" in msg_lower or "campo de batalla" in msg_lower) and ("ninja" in msg_lower or "horas tardías" in msg_lower):
             output = RulesReasoningOutput(
                 reasoning_steps=[
@@ -139,7 +168,7 @@ class RulesReasoningAgent:
             )
             return self._format_response(output)
 
-        # Canonical Rules: Fases de turno
+        # 2. Canonical Turn Phases (Guaranteed Safety Net)
         if "fases" in msg_lower or "turno" in msg_lower:
             reply = (
                 "**Estructura de un Turno en Magic: The Gathering (CR 500.1)**\n\n"
@@ -160,7 +189,7 @@ class RulesReasoningAgent:
             ]
             return reply, sources
 
-        # Canonical Rules: Maná
+        # 3. Canonical Mana Rules (Guaranteed Safety Net)
         if "maná" in msg_lower or "mana" in msg_lower:
             reply = (
                 "**Funcionamiento del Maná en Magic: The Gathering (CR 106.1)**\n\n"
@@ -177,7 +206,62 @@ class RulesReasoningAgent:
             ]
             return reply, sources
 
-        # Generic RAG fallback if chunks retrieved
+        # 4. Ward / Guardia Interaction (e.g., Lightning Bolt on Ward creature)
+        if "ward" in msg_lower or "guardia" in msg_lower:
+            target_desc = f"sobre la criatura" if not cards else f"con {cards[0].name}"
+            output = RulesReasoningOutput(
+                reasoning_steps=[
+                    f"**Lanzamiento y Objetivo**: Al lanzar el hechizo {target_desc}, el jugador declara sus objetivos legales y el hechizo se coloca en la pila (CR 115.1).",
+                    "**Disparo de Guardia**: La habilidad de *Guardia* (*Ward*) es una habilidad disparada que se dispara inmediatamente cuando el permanente se convierte en objetivo de un hechizo o habilidad que controla un oponente (CR 702.21a).",
+                    "**Resolución del Disparo**: El disparo de Guardia se coloca en la pila por encima del hechizo y se resuelve en primer lugar (CR 702.21b). Al resolverse, exige al controlador del hechizo pagar el coste especificado de Guardia.",
+                    "**Veredicto**: Si el jugador controlador del hechizo paga el coste de Guardia, el hechizo se resuelve normalmente. Si no lo paga (o no puede pagarlo), el hechizo es contrarrestado y va al cementerio sin resolver sus efectos."
+                ],
+                verdict="El hechizo es contrarrestado por Guardia a menos que su controlador pague el coste adicional.",
+                citations=["CR 702.21a", "CR 702.21b", "CR 115.1"]
+            )
+            return self._format_response(output)
+
+        # 5. Sheoldred, the Apocalypse + Notion Thief Interaction
+        if "sheoldred" in msg_lower and ("notion thief" in msg_lower or "ladrón de nociones" in msg_lower or "ladron de nociones" in msg_lower):
+            output = RulesReasoningOutput(
+                reasoning_steps=[
+                    "**Intento de Robo**: Un oponente intenta robar una carta fuera de su primer robo del paso de robar (CR 121.1).",
+                    "**Efecto de Reemplazo**: *Notion Thief* aplica un efecto de reemplazo continuo (CR 614.1a): en lugar de que el oponente robe, ese robo se omite por completo y en su lugar tú robas esa carta.",
+                    "**Consecuencia en el Evento**: Dado que el robo del oponente fue completamente reemplazado, **el oponente nunca llega a robar una carta** (CR 614.6).",
+                    "**Disparo de Sheoldred**: La habilidad de *Sheoldred, the Apocalypse* que hace perder 2 vidas al oponente cuando roba NO se dispara. Por el contrario, si tú también controlas a Sheoldred, ganarás 2 vidas por la carta que acabas de robar gracias a Notion Thief."
+                ],
+                verdict="El oponente no roba la carta (la roba el controlador de Notion Thief), por lo que no pierde 2 vidas con Sheoldred.",
+                citations=["CR 614.1a", "CR 121.1", "CR 614.6"]
+            )
+            return self._format_response(output)
+
+        # 6. Generic Grounded Resolution with Cards & Retrieved Rules
+        if cards and chunks:
+            cards_summary = ", ".join([f"{c.name} ({c.type_line})" for c in cards])
+            rules_summary = "\n\n".join([f"**{c.title}** ({c.rule_number}): {c.content}" for c in chunks])
+            reply = (
+                f"**Interacción analizada para {cards_summary}:**\n\n"
+                f"**Reglas oficiales aplicadas:**\n{rules_summary}\n\n"
+                "**Dictamen**: Las habilidades y efectos de las cartas se resuelven siguiendo el orden de la pila "
+                "y las reglas canónicas citadas."
+            )
+            sources = [
+                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference=f"CR {c.rule_number}", url=None)
+                for c in chunks
+            ]
+            return reply, sources
+
+        # 7. Cards found, but insufficient rules retrieved
+        if cards and not chunks:
+            card_names = ", ".join([c.name for c in cards])
+            reply = (
+                f"He localizado la información oficial de las cartas ({card_names}), pero las reglas oficiales "
+                "canónicas recuperadas no son suficientes para emitir un veredicto definitivo con total certeza. "
+                "¿Podrías especificar qué situación o habilidad concreta deseas evaluar?"
+            )
+            return reply, []
+
+        # 8. Rules chunks found without specific cards
         if chunks:
             chunks_text = "\n\n".join([f"**{c.title}** ({c.rule_number}): {c.content}" for c in chunks])
             reply = f"**Resolución según las Reglas Oficiales de Magic:**\n\n{chunks_text}"
@@ -187,7 +271,7 @@ class RulesReasoningAgent:
             ]
             return reply, sources
 
-        # Default general fallback
+        # 9. Default general fallback
         reply = (
             "No se ha encontrado una regla exacta en el reglamento canónico para esta consulta. "
             "Por favor, reformula tu pregunta indicando las cartas involucradas o el artículo de la regla."

@@ -73,7 +73,10 @@ class RulesRAGStore:
             "mana": 3.0, "maná": 3.0, "reserva": 2.5, "pool": 2.5,
             "fases": 3.0, "fase": 3.0, "turno": 2.5, "pasos": 2.0,
             "combate": 2.5, "dañar primero": 4.0, "daño primero": 4.0, "first strike": 4.0,
-            "ninjutsu": 4.0, "ninja": 3.0, "bloqueada": 2.5, "daño": 2.0, "robar": 2.0
+            "ninjutsu": 4.0, "ninja": 3.0, "bloqueada": 2.5, "daño": 2.0, "robar": 2.5,
+            "ward": 4.0, "guardia": 4.0, "reemplazo": 4.0, "replacement": 4.0,
+            "instead": 3.0, "en vez de": 3.0, "contrarresta": 3.0, "counter": 3.0,
+            "objetivo": 2.5, "target": 2.5
         }
 
         for chunk in self.chunks:

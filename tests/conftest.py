@@ -69,3 +69,28 @@ def mock_mtg_tool(sample_cards, monkeypatch):
         return filtered
 
     monkeypatch.setattr(MTGCardSearchTool, "search_cards", fake_search_cards)
+
+
+@pytest.fixture(autouse=True)
+def prevent_external_http_in_unit_tests(monkeypatch, request):
+    """
+    Guarantees 100% offline, deterministic unit test execution (<1s).
+    External HTTP requests are intercepted so unit tests never hang on live APIs.
+    """
+    if "integration" in request.keywords:
+        return
+
+    import httpx
+
+    orig_get = httpx.Client.get
+
+    def safe_get(self, url, **kwargs):
+        url_str = str(url)
+        # TestClient requests are either relative or target testserver
+        if not url_str.startswith("http://") and not url_str.startswith("https://") or "testserver" in url_str:
+            return orig_get(self, url, **kwargs)
+        # Intercept external calls to ensure zero internet dependence
+        return httpx.Response(status_code=200, json={"cards": []})
+
+    monkeypatch.setattr(httpx.Client, "get", safe_get)
+
