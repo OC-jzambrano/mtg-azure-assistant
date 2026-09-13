@@ -18,6 +18,7 @@ class Settings(BaseModel):
     azure_openai_endpoint: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
     azure_openai_api_key: str = os.getenv("AZURE_OPENAI_API_KEY", "")
     azure_openai_deployment: str = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+    azure_openai_deployment_reasoning: str = os.getenv("AZURE_OPENAI_DEPLOYMENT_REASONING", "gpt-4o")
     
     # Database
     database_url: str = os.getenv("DATABASE_URL", "")

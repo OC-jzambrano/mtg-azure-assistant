@@ -80,20 +80,7 @@ resource "azurerm_storage_container" "card_art_container" {
   container_access_type = "blob"
 }
 
-# 4. Azure Cache for Redis (Card API & Rule Cache)
-resource "azurerm_redis_cache" "redis" {
-  name                 = "${var.prefix}-redis-${random_string.suffix.result}"
-  location             = azurerm_resource_group.rg.location
-  resource_group_name  = azurerm_resource_group.rg.name
-  capacity             = 1
-  family               = "C"
-  sku_name             = "Standard"
-  non_ssl_port_enabled = false
-  minimum_tls_version  = "1.2"
-  tags                 = var.tags
-}
-
-# 5. Azure Database for PostgreSQL Flexible Server with pgvector extension
+# 4. Azure Database for PostgreSQL Flexible Server with pgvector extension
 resource "azurerm_postgresql_flexible_server" "postgres" {
   name                   = "${var.prefix}-pg-${random_string.suffix.result}"
   resource_group_name    = azurerm_resource_group.rg.name
@@ -250,14 +237,6 @@ resource "azurerm_container_app" "backend" {
       env {
         name  = "DATABASE_URL"
         value = "postgresql://${var.postgres_admin_user}:${var.postgres_admin_password}@${azurerm_postgresql_flexible_server.postgres.fqdn}:5432/${azurerm_postgresql_flexible_server_database.mtg_db.name}?sslmode=require"
-      }
-      env {
-        name  = "REDIS_HOST"
-        value = azurerm_redis_cache.redis.hostname
-      }
-      env {
-        name  = "REDIS_PORT"
-        value = tostring(azurerm_redis_cache.redis.ssl_port)
       }
       env {
         name  = "STORAGE_ACCOUNT_NAME"

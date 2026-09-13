@@ -28,8 +28,3 @@ output "postgres_database_name" {
   description = "Name of the created MTG database"
   value       = azurerm_postgresql_flexible_server_database.mtg_db.name
 }
-
-output "redis_hostname" {
-  description = "Azure Cache for Redis hostname"
-  value       = azurerm_redis_cache.redis.hostname
-}

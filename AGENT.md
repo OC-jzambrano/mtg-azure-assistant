@@ -1,74 +1,70 @@
 # AGENT.MD — CONTRATO DE ALCANCE Y ARQUITECTURA CONGELADA
 
-> ⚠️ **REGLA DE ORO DE DESARROLLO**:
-> El alcance y la arquitectura de este proyecto están **100% CONGELADOS**.
-> Queda **estrictamente prohibido** que cualquier agente de IA o desarrollador introduzca nuevos servicios en la nube, añada más agentes, cree bases de datos adicionales o complique el diseño.
-> El foco absoluto es: **código limpio, 100% testeado, documentado y defendible en entrevista técnica**.
+> 🎯 **PRINCIPIO RECTOR DE DISEÑO**:
+> La arquitectura sigue un patrón **Router-Worker pragmático**:
+> - **Router Determinista Central**: Triage rápido (<10ms) para clasificación de intención y ejecución directa de herramientas en tareas mecánicas (búsqueda de cartas, filtros, diálogo general).
+> - **Agentes Especializados donde realmente aportan valor cognitivo**:
+>   1. **Rules & Combat Reasoning Agent**: Aplica Chain-of-Thought (CoT) sobre las reglas oficiales canónicas recuperadas para resolver situaciones complejas de combate (ej. *Dañar primero + Ninjutsu*, capas, prioridad).
+>   2. **Custom Card Designer Agent**: Síntesis creativa y balance de mecánicas evaluando directrices oficiales del *Color Pie* de Wizards of the Coast.
+> - **Anti-sobreingeniería**: Se prohíbe crear enjambres innecesarios de 5 o 6 micro-agentes para tareas que se resuelven con funciones deterministas y herramientas.
+> - **Cero contradicciones en infraestructura**: La base de datos es **PostgreSQL + pgvector** (vectores HNSW, Full Text Search, sesiones y caché JSONB). **No se utiliza Redis ni bases de datos satélite**.
 
 ---
 
 ## 1. Matriz de Decisiones Arquitectónicas (FROZEN STACK)
 
-Cualquier cambio a esta tabla se considera una violación del alcance del proyecto.
-
-| Componente | Tecnología Seleccionada | Justificación / Restricción |
+| Componente | Tecnología Seleccionada | Justificación y Fronteras |
 | :--- | :--- | :--- |
-| **Frontend Demo** | **Streamlit** | UI rápida, interactiva y limpia para demostración inmediata al cliente. |
-| **Backend API** | **FastAPI** | Framework asíncrono en Python, tipado estricto con Pydantic y endpoints limpios (/health, /api/chat). |
-| **Orquestador** | **1 Único Router (Intent Router)** | Clasificador determinista de 4 vías. **PROHIBIDO crear 5-6 sub-agentes**. |
-| **LLM** | **Azure OpenAI** | gpt-4o (razonamiento de combate) y gpt-4o-mini (clasificación/extracción). Fallback transparente a OpenAI/Mock para tests. |
-| **Vector DB / RAG** | **PostgreSQL + pgvector** | Almacenamiento unificado de embeddings con índice HNSW (`vector_cosine_ops`) y Full Text Search (`tsvector`). **PROHIBIDO Azure AI Search**. |
-| **Herramienta Externa** | **MTG REST API** | Consumo directo de `https://api.magicthegathering.io/v1/cards` con `User-Agent` personalizado y mapeo de filtros. |
-| **Memoria Conversacional** | **PostgreSQL** | Persistencia de sesiones y acumulación de filtros en tablas relacionales. **PROHIBIDO Cosmos DB**. |
+| **Frontend Demo** | **Streamlit** | `src/ui/app_streamlit.py` consumiendo FastAPI exclusivamente vía HTTP/JSON (`api_client.py`). |
+| **Backend API** | **FastAPI** | `src/api/app.py` como capa HTTP fina. Tipado estricto con Pydantic (`schemas.py`), endpoints `/health` y `/api/chat`. |
+| **Orquestación & Agentes** | **Router Determinista + Agentes Especializados** | Router central + **Rules Reasoning Agent** (resolución de combate) + **Custom Designer Agent** (diseño Color Pie). |
+| **LLM** | **Azure OpenAI** | `gpt-4o` (razonamiento complejo de reglas y diseño custom) y `gpt-4o-mini` (extracción/clasificación). Fallback determinista local. |
+| **Vector DB / RAG** | **PostgreSQL + pgvector** | Almacenamiento unificado de embeddings con índice HNSW (`vector_cosine_ops`) y Full Text Search (`tsvector`). Sustituye Azure AI Search. |
+| **Herramienta Externa** | **MTG REST API** | `src/tools/mtg_api.py` consumiendo `https://api.magicthegathering.io/v1/cards` con `User-Agent` y corrección de `max_cmc`. |
+| **Memoria y Caché** | **PostgreSQL** | Persistencia relacional de conversaciones (`chat_sessions`) y caché de cartas (`mtg_card_cache` en JSONB). **Sin Redis**. |
 | **Entorno Local** | **Docker Compose** | Imagen oficial `pgvector/pgvector:pg16` para base de datos local en puerto 5432. |
-| **Cloud Provider** | **Microsoft Azure** | Despliegue productivo en Azure Container Apps + PostgreSQL Flexible Server. |
-| **IaC (Infraestructura)** | **Terraform** | Código modular en `infra/terraform/` validado (`terraform validate`). **PROHIBIDO Bicep / ARM redundantes**. |
+| **Cloud Provider** | **Microsoft Azure** | Azure Container Apps + PostgreSQL Flexible Server con extensión `VECTOR`. |
+| **IaC (Infraestructura)** | **Terraform** | Código modular en `infra/terraform/` validado (`terraform validate`, 0 errores). **Sin Redis ni Bicep**. |
 | **Observabilidad** | **Application Insights / OpenTelemetry** | Trazabilidad distribuida APM, percentiles de latencia (p95), errores y auditoría de tokens. |
 
 ---
 
-## 2. Los Únicos 4 Flujos Permitidos
+## 2. Los 4 Flujos Oficiales
 
-No se implementará ni evaluará ningún flujo fuera de estos cuatro:
+1. **Flujo 1 — Rules RAG**:
+   * *Entrada*: Consultas de reglas (maná CR 106, fases de turno CR 500) o interacción de combate (*Rapaz + Ninja*).
+   * *Ejecutor*: RAG sobre reglas canónicas + **Rules Reasoning Agent**.
+   * *Salida*: Explicación fundamentada + **Citaciones estructuradas obligatorias** (`SourceRef(kind='rule', reference='CR XXX.X')`).
 
-### Flujo 1: Rules RAG
-* **Entrada**: Dudas de reglamento (*"¿Cómo funciona el maná?"*, *"¿Qué fases hay en un turno?"*, o interacción de combate *"Rapaz del campo de batalla [Dañar primero] + Ninja de horas tardías [Ninjutsu]"*).
-* **Proceso**: Recuperación híbrida sobre data/official_rules_mtg.json / PostgreSQL pgvector.
-* **Salida Obligatoria**: Respuesta fundamentada + **Citación explícita de fuentes** (Magic Comprehensive Rules (CR XXX.X)).
+2. **Flujo 2 — Card Search (Tool Calling Estructurado)**:
+   * *Entrada*: Búsqueda en lenguaje natural (*"Busco una carta blanca guerrero de coste inferior a dos"*).
+   * *Ejecutor*: Router determinista -> `MTGCardSearchTool` con filtros canónicos (`color='W'`, `subtype='Warrior'`, `max_cmc=1`).
+   * *Salida*: Listado de cartas con nombre, coste, tipo e imagen oficial de Gatherer (`imageUrl`).
 
-### Flujo 2: Card Search (Tool Calling Estructurado)
-* **Entrada**: Consulta en lenguaje natural (*"Busco una carta blanca de coste inferior a dos de mana que sea guerrero"*).
-* **Proceso**: Extracción de entidades a parámetros tipados (colorIdentity=W, subtypes=Warrior, cmc<=1), llamada HTTP a la API de MTG.
-* **Salida Obligatoria**: Listado de cartas con nombre, coste, tipo e imagen oficial de Gatherer (imageUrl).
+3. **Flujo 3 — Multi-turn Conversation (Contexto Acumulativo)**:
+   * *Entrada*: Pregunta elíptica de refinamiento (*"¿Y alguna que cueste solo uno?"*).
+   * *Ejecutor*: `ConversationMemory` fusiona filtros previos con la nueva restricción (`color='W'`, `subtype='Warrior'`, `cmc=1`).
+   * *Salida*: Resultados precisos demostrando preservación del hilo conversacional a través de FastAPI.
 
-### Flujo 3: Multi-turn Conversation (Contexto Acumulativo)
-* **Entrada**: Pregunta elíptica tras una búsqueda previa (*"¿Y alguna que cueste solo uno?"*).
-* **Proceso**: El gestor de memoria recupera el estado last_card_filter de la sesión y fusiona las restricciones (color=W, subtype=Warrior, cmc=1).
-* **Salida Obligatoria**: Resultados filtrados demostrando que el asistente no perdió el contexto previo.
-
-### Flujo 4: Custom Card [Bonus]
-* **Entrada**: Petición de diseño (*"Quiero una carta de Han Solo, blanca-roja que tenga dañar primero"*).
-* **Proceso**: Síntesis de diseño respetando las directrices oficiales de Wizards of the Coast (*Color Pie*).
-* **Salida Obligatoria**: Ficha estructurada de la carta con coste, tipo, estadísticas (3/2), habilidad coherente y texto de ambientación (*Flavor Text*).
+4. **Flujo 4 — Custom Card [Bonus]**:
+   * *Entrada*: Solicitud de carta ficticia (*"Quiero una carta de Han Solo, blanca-roja con dañar primero"*).
+   * *Ejecutor*: **Custom Card Designer Agent** aplicando directrices del Color Pie.
+   * *Salida*: Ficha estructurada (3/2, {1}{R}{W}, habilidades y flavor text) con `image_url: null` honesto.
 
 ---
 
-## 3. Servicios Estrictamente Prohibidos (Anti-Sobreingeniería)
+## 3. Restricciones Anti-Sobreingeniería y Coherencia
 
-Para evitar preguntas trampa o acusaciones de sobreingeniería en la revisión técnica:
-* ❌ **NO usar 6 agentes** (se usa exactamente 1 Router).
-* ❌ **NO usar Azure AI Search** (se usa PostgreSQL con pgvector).
-* ❌ **NO usar Azure Cosmos DB** (se usa PostgreSQL para sesiones y memoria).
-* ❌ **NO usar Redis** (la caché se gestiona en PostgreSQL / memoria).
-* ❌ **NO añadir LangGraph con decenas de nodos** si un Router limpio en Python resuelve los 4 flujos.
+* ❌ **NO usar Redis**: Toda la caché de cartas se gestiona de forma unificada en la tabla `mtg_card_cache` de PostgreSQL con columnas JSONB e índices GIN.
+* ❌ **NO crear agentes para tareas mecánicas**: La búsqueda en la API de MTG, la extracción de filtros y el formateo de respuestas son tareas directas de herramientas, no requieren agentes autónomos.
+* ❌ **NO usar Azure AI Search ni Cosmos DB**: Unificados en PostgreSQL + `pgvector`.
 
 ---
 
 ## 4. Definición de Terminado (Definition of Done — DoD)
 
-Una tarea solo se considera terminada si cumple:
-1. **Alcance**: Pertenece estrictamente a los 4 flujos permitidos.
-2. **Código Limpio**: Python con tipado estricto (Pydantic / Type Hints), sin código muerto ni dependencias innecesarias.
-3. **Tests**: Pasa con éxito la suite de pruebas unitarias (pytest tests/ -v) con 100% de éxito.
-4. **Offline Resilience**: El sistema funciona tanto con Azure OpenAI configurado como en modo determinista local para pruebas sin saldo.
-5. **Documentado**: Toda decisión de arquitectura está reflejada en README.md y en el documento de arquitectura productiva.
+1. **Contrato Único**: Streamlit consume FastAPI exclusivamente vía HTTP (`POST /api/chat`) con `conversation_id` UUID.
+2. **Esquemas Tipados**: Modelos Pydantic en `src/api/schemas.py` (`ChatRequest`, `ChatResponse`, `SourceRef`, `CardResult`, `CardSearchFilters`).
+3. **Cero Contradicciones**: Terraform, código, tests y documentación alineados (sin Redis, con PostgreSQL unificado).
+4. **Tests 100% Deterministas**: Suite de tests unitarios pasa sin requerir Internet en <1 segundo.
+5. **Documentación Clara**: Distinción explícita entre demo implementada y propuesta productiva cloud.

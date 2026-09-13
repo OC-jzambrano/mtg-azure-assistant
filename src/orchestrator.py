@@ -11,6 +11,8 @@ from src.api.schemas import (
 from src.tools.mtg_api import MTGCardSearchTool, CardItem
 from src.services.rules_rag import RulesRAGStore, RuleChunk
 from src.services.memory import ConversationMemory
+from src.agents.rules_reasoning_agent import RulesReasoningAgent
+from src.agents.custom_card_agent import CustomCardAgent
 
 
 class AssistantResult(BaseModel):
@@ -25,15 +27,24 @@ class MTGOrchestrator:
     """
     Single pragmatic Orchestrator / Intent Router:
     1. Intent Classification (RULES, CARD_SEARCH, CUSTOM_CARD, CONVERSATION)
-    2. Tool Execution (MTG API, RAG Store)
-    3. Multi-turn State Preservation
-    4. Strongly typed AssistantResult domain output
+    2. Delegation to Specialized Agents (RulesReasoningAgent, CustomCardAgent)
+    3. Tool Execution (MTG API, RAG Store)
+    4. Multi-turn State Preservation
+    5. Strongly typed AssistantResult domain output
     """
 
-    def __init__(self, rag_store: Optional[RulesRAGStore] = None, api_tool: Optional[MTGCardSearchTool] = None):
+    def __init__(
+        self,
+        rag_store: Optional[RulesRAGStore] = None,
+        api_tool: Optional[MTGCardSearchTool] = None,
+        rules_agent: Optional[RulesReasoningAgent] = None,
+        custom_card_agent: Optional[CustomCardAgent] = None
+    ):
         self.rag = rag_store or RulesRAGStore()
         self.api_tool = api_tool or MTGCardSearchTool()
         self.memory = ConversationMemory()
+        self.rules_agent = rules_agent or RulesReasoningAgent()
+        self.custom_card_agent = custom_card_agent or CustomCardAgent()
 
     def classify_intent(self, message: str, last_topic: Optional[str] = None) -> ResponseType:
         msg = message.lower().strip()
@@ -134,75 +145,8 @@ class MTGOrchestrator:
             return self._handle_general(conversation_id, message)
 
     def _handle_rules(self, conversation_id: str, message: str) -> AssistantResult:
-        msg_lower = message.lower()
         rule_chunks = self.rag.retrieve_rules(message, top_k=3)
-
-        # Build typed SourceRef objects
-        sources: List[SourceRef] = [
-            SourceRef(
-                kind="rule",
-                title="Magic Comprehensive Rules",
-                reference=f"CR {c.rule_number}",
-                url=None
-            )
-            for c in rule_chunks
-        ]
-
-        # Check for specific combat puzzle: Rapaz del campo de batalla + Ninja de horas tardías
-        if ("rapaz" in msg_lower or "campo de batalla" in msg_lower) and ("ninja" in msg_lower or "horas tardías" in msg_lower):
-            reply = (
-                "**¡Sí, el Ninja de horas tardías sí aplica su daño de combate!**\n\n"
-                "**Explicación paso a paso de las reglas de juego:**\n"
-                "1. **Paso de Daño de Dañar Primero**: Tu *Rapaz del campo de batalla* tiene la habilidad de *Dañar primero* (CR 702.7a), "
-                "por lo que asigna y resuelve su daño de combate en el primer paso de daño.\n"
-                "2. **Ventana de Prioridad**: Tras resolverse el daño de dañar primero, el jugador activo recibe prioridad dentro de ese paso. "
-                "Dado que el Rapaz atacó y no fue bloqueado, **sigue siendo una criatura atacante no bloqueada** (CR 702.48c).\n"
-                "3. **Activación de Ninjutsu**: Activas válidamente la habilidad de *Ninjutsu* ({1}{U}), regresando el Rapaz a tu mano y "
-                "poniendo al *Ninja de horas tardías* en el campo de batalla atacando.\n"
-                "4. **Paso de Daño Regular**: En el segundo paso de daño de combate (CR 702.7b y CR 510.4), asignan daño todas las criaturas "
-                "atacantes que no hayan asignado daño aún en este combate. Como el Ninja acaba de entrar y **no ha hecho daño todavía**, "
-                "**asigna sus 2 puntos de daño de combate al jugador defensor** y dispara su habilidad para hacerte robar una carta."
-            )
-            sources = [
-                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 702.48c", url=None),
-                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 702.7b", url=None),
-                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 510.4", url=None)
-            ]
-        elif "fases" in msg_lower or "turno" in msg_lower:
-            reply = (
-                "**Estructura de un Turno en Magic: The Gathering (CR 500.1)**\n\n"
-                "Un turno se divide en **5 fases ordenadas**:\n"
-                "1. **Fase Inicial (Beginning Phase - CR 501.1)**:\n"
-                "   - Paso de enderezar (Untap step)\n"
-                "   - Paso de mantenimiento (Upkeep step)\n"
-                "   - Paso de robar (Draw step)\n"
-                "2. **Primera Fase Principal (Precombat Main Phase - CR 505.1)**: Puedes lanzar criaturas, conjuros, artefactos y jugar una tierra.\n"
-                "3. **Fase de Combate (Combat Phase - CR 506.1)**: Inicio, declarar atacantes, declarar bloqueadores, daño de combate (uno o dos pasos si hay dañar primero) y fin del combate.\n"
-                "4. **Segunda Fase Principal (Postcombat Main Phase)**: Segunda oportunidad para jugar tierras y hechizos de velocidad conjuro.\n"
-                "5. **Fase Final (Ending Phase - CR 512.1)**: Paso final (End step) y paso de limpieza (Cleanup step)."
-            )
-            sources = [
-                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 500.1", url=None),
-                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 501.1", url=None),
-                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 505.1", url=None)
-            ]
-        elif "maná" in msg_lower or "mana" in msg_lower:
-            reply = (
-                "**Funcionamiento del Maná en Magic: The Gathering (CR 106.1)**\n\n"
-                "- **¿Qué es?**: El maná es la energía necesaria para lanzar hechizos y activar habilidades.\n"
-                "- **Fuentes vs Reserva**: Las tierras y artefactos son *fuentes* que producen maná; ese maná se almacena temporalmente en tu *reserva de maná* (mana pool).\n"
-                "- **Vaciado de Reserva**: El maná no gastado no se acumula; se vacía automáticamente al final de cada paso y cada fase de tu turno.\n"
-                "- **Colores**: Existen 5 colores: Blanco ({W}), Azul ({U}), Negro ({B}), Rojo ({R}) y Verde ({G}), además de maná incoloro ({C}).\n"
-                "- **Coste vs Valor**: El *Coste de maná* son los símbolos impresos en la carta (ej. {1}{W}); el *Valor de maná* (CMC) es la suma total numérica (ej. 2)."
-            )
-            sources = [
-                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 106.1", url=None),
-                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 106.2", url=None),
-                SourceRef(kind="rule", title="Magic Comprehensive Rules", reference="CR 202.1", url=None)
-            ]
-        else:
-            chunks_text = "\n\n".join([f"**{c.title}** ({c.rule_number}): {c.content}" for c in rule_chunks])
-            reply = f"**Resolución según las Reglas Oficiales de Magic:**\n\n{chunks_text}"
+        reply, sources = self.rules_agent.run(message=message, rule_chunks=rule_chunks)
 
         self.memory.add_assistant_message(
             conversation_id=conversation_id,
@@ -300,32 +244,7 @@ class MTGOrchestrator:
         )
 
     def _handle_custom_card(self, conversation_id: str, message: str) -> AssistantResult:
-        reply = (
-            "### 🃏 Carta Custom Creada: Han Solo, Capitán del Halcón\n\n"
-            "* **Coste de Maná**: `{1}{R}{W}` (CMC: 3)\n"
-            "* **Color / Identidad**: Blanco-Rojo (Boros)\n"
-            "* **Tipo de Carta**: Criatura Legendaria — Humano Bribón Piloto\n"
-            "* **Fuerza / Resistencia**: `3/2`\n"
-            "* **Habilidades de Juego**:\n"
-            "  * **Dañar primero** (*First strike*).\n"
-            "  * *Disparó primero*: Siempre que Han Solo ataque o bloquee, si tienes una o menos cartas en tu mano, "
-            "obtiene +1/+0 y no puede ser bloqueado por criaturas con fuerza de 4 o más este combate.\n"
-            "  * *Tripulación intrépida*: {2}, {T}: El Vehículo objetivo que controlas se convierte en criatura artefacto hasta el final del turno.\n"
-            "* **Texto de Ambientación (*Flavor Text*)**:\n"
-            "  > *«Nunca me digas las probabilidades.»*\n\n"
-            "*Diseño balanceado respetando la filosofía del Color Pie (iniciativa agresiva roja y lealtad/coordinación blanca).*"
-        )
-
-        # SPEC 01 / SPEC 04: Do not fake an image url when none exists
-        custom_card = CardResult(
-            name="Han Solo, Capitán del Halcón",
-            mana_cost="{1}{R}{W}",
-            cmc=3.0,
-            type_line="Legendary Creature — Human Rogue Pilot",
-            oracle_text="Dañar primero. Disparó primero: Siempre que Han Solo ataque o bloquee, si tienes una o menos cartas...",
-            image_url=None,
-            set_name=None
-        )
+        reply, custom_card = self.custom_card_agent.run(message=message)
 
         self.memory.add_assistant_message(
             conversation_id=conversation_id,
