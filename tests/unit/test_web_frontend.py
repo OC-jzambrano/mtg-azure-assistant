@@ -9,8 +9,11 @@ def test_standalone_frontend_and_original_assets_are_served():
     page = client.get('/chat/')
     assert page.status_code == 200
     assert 'vendor/nlux-core.js' in page.text
+    assert 'assets/favicon-32.png' in page.text
+    assert 'assets/favicon-192.png' in page.text
     for asset in ['app.js', 'standalone.css', 'vendor/nova.css',
-                  'vendor/ai_sidebar.css', 'vendor/nlux-core.js', 'vendor/iabotv2.png']:
+                  'vendor/ai_sidebar.css', 'vendor/nlux-core.js', 'vendor/iabotv2.png',
+                  'assets/favicon-32.png', 'assets/favicon-192.png']:
         response = client.get('/chat/' + asset)
         assert response.status_code == 200
         assert response.content

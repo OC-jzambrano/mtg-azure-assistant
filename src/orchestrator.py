@@ -15,6 +15,7 @@ from src.services.rules_rag import RulesRAGStore, RuleChunk
 from src.services.memory import ConversationMemory
 from src.agents.rules_reasoning_agent import RulesReasoningAgent
 from src.agents.custom_card_agent import CustomCardAgent
+from src.services.llm import LLMService
 
 
 class AssistantResult(BaseModel):
@@ -40,13 +41,15 @@ class MTGOrchestrator:
         rag_store: Optional[RulesRAGStore] = None,
         api_tool: Optional[MTGCardSearchTool] = None,
         rules_agent: Optional[RulesReasoningAgent] = None,
-        custom_card_agent: Optional[CustomCardAgent] = None
+        custom_card_agent: Optional[CustomCardAgent] = None,
+        llm_service: Optional[LLMService] = None
     ):
         self.rag = rag_store or RulesRAGStore()
         self.api_tool = api_tool or MTGCardSearchTool()
         self.memory = ConversationMemory()
         self.rules_agent = rules_agent or RulesReasoningAgent()
         self.custom_card_agent = custom_card_agent or CustomCardAgent()
+        self.llm = llm_service or LLMService()
 
     def classify_intent(self, message: str, last_topic: Optional[str] = None) -> ResponseType:
         msg = message.lower().strip()
@@ -221,7 +224,7 @@ class MTGOrchestrator:
         elif resp_type == ResponseType.CUSTOM_CARD:
             res = self._handle_custom_card(conversation_id, message, locale=locale)
         else:
-            res = self._handle_general(conversation_id, message)
+            res = self._handle_general(conversation_id, message, locale=locale)
 
         with tracing.observation(
             name="build_response",
@@ -559,16 +562,69 @@ class MTGOrchestrator:
             active_filters=None
         )
 
-    def _handle_general(self, conversation_id: str, message: str) -> AssistantResult:
-        reply = (
-            "¡Hola! Soy tu asistente y juez de soporte para **Magic: The Gathering** del Call Center.\n\n"
-            "Puedo ayudarte con:\n"
-            "1. **Reglas del juego**: Fases del turno, funcionamiento del maná o la pila.\n"
-            "2. **Interacciones complejas**: Dudas de combate (ej. *Dañar primero + Ninjutsu*).\n"
-            "3. **Búsqueda de cartas**: Búsqueda por color, subtipos y coste vía API oficial de MTG.\n"
-            "4. **Creación de cartas custom**: Diseñar cartas personalizadas y balanceadas.\n\n"
-            "¿En qué puedo ayudarte?"
-        )
+    def _handle_general(self, conversation_id: str, message: str, locale: str = "es") -> AssistantResult:
+        msg_clean = message.lower().strip()
+
+        # 1. Overview de Magic: The Gathering
+        overview_patterns = [
+            r"\bde\s+qu[eé]\s+(?:se\s+)?trata\b",
+            r"\ben\s+qu[eé]\s+consiste\b",
+            r"\bqu[eé]\s+es\s+(?:magic(?::\s*the\s+gathering)?|mtg|este\s+juego)\b",
+            r"\bc[oó]mo\s+se\s+juega\b",
+        ]
+
+        if any(re.search(pat, msg_clean) for pat in overview_patterns):
+            reply = (
+                "Magic: The Gathering es un juego de cartas coleccionables y estrategia. "
+                "Cada jugador construye un mazo, usa tierras para generar maná, lanza "
+                "criaturas y hechizos y trata de derrotar a sus oponentes; normalmente "
+                "reduciendo sus vidas de 20 a 0.\n\n"
+                "El turno tiene varias fases, incluyendo las fases principales y el "
+                "combate. Muchas cartas pueden responder a otras mediante la pila, por "
+                "lo que importan tanto la construcción del mazo, la gestión del maná "
+                "como el momento en que se juega cada carta.\n\n"
+                "Si quieres, puedo explicarte un turno completo o hacer una partida "
+                "de ejemplo paso a paso."
+            )
+        else:
+            # 2. Saludos cortos (sin mostrar menú completo)
+            stripped = re.sub(r"^[¿¡\s]+|[?!.,\s]+$", "", msg_clean)
+            greeting_patterns = [
+                r"^(?:hola|buenas|buenos\s+d[ií]as|buenas\s+tardes|buenas\s+noches|hey|hi|hello|saludos|qu[eé]\s+tal)(?:\s+(?:buenas|buenos|tardes|d[ií]as|noches|asistente))?$",
+            ]
+            if any(re.search(pat, stripped) for pat in greeting_patterns):
+                reply = (
+                    "¡Hola! Soy tu asistente y juez de soporte para Magic: The Gathering. "
+                    "¿En qué puedo ayudarte hoy?"
+                )
+            else:
+                # 3. Resto de preguntas generales vía LLMService (sin invocar RulesReasoningAgent)
+                system_prompt = (
+                    "Eres un asistente amigable y experto en Magic: The Gathering.\n"
+                    "Tu tarea es responder preguntas generales sobre el juego o conversar con el usuario.\n\n"
+                    "Directrices obligatorias:\n"
+                    "- Responder directamente a la pregunta.\n"
+                    "- Mantener el idioma del usuario.\n"
+                    "- Ser breve, claro y conciso.\n"
+                    "- No inventar texto Oracle de cartas.\n"
+                    "- No inventar números ni citas de Comprehensive Rules (CR).\n"
+                    "- Si la consulta realmente requiere una regla concreta o resolver una interacción de juego o combate, "
+                    "indícale al usuario que plantee la interacción específica con los nombres de las cartas para pasar al flujo especializado."
+                )
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": message}
+                ]
+                llm_reply = self.llm.generate_text(messages)
+                if llm_reply and llm_reply.strip():
+                    reply = llm_reply.strip()
+                else:
+                    reply = (
+                        "¡Hola! Soy tu asistente de Magic: The Gathering. "
+                        "Puedo ayudarte con información general, dudas de reglas e interacciones, "
+                        "búsqueda de cartas oficiales o diseño de cartas personalizadas. ¿En qué puedo orientarte?"
+                    )
+
         self.memory.add_assistant_message(
             conversation_id=conversation_id,
             content=reply,

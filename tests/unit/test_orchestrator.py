@@ -128,3 +128,64 @@ def test_orchestrator_custom_card_darth_vader():
     assert "{U}" in res.cards[0].mana_cost and "{B}" in res.cards[0].mana_cost
 
 
+def test_general_question_about_game_is_answered():
+    orch = MTGOrchestrator()
+    result = orch.handle_message(
+        "session-general",
+        "¿De qué se trata este juego?"
+    )
+
+    assert result.type == ResponseType.CONVERSATION
+    assert "juego de cartas" in result.message.lower()
+    assert "maná" in result.message.lower() or "mana" in result.message.lower()
+
+    # La respuesta anterior incorrecta no debe aparecer.
+    assert not result.message.endswith("¿En qué puedo ayudarte?")
+
+
+def test_general_question_overview_variations():
+    orch = MTGOrchestrator()
+    variations = [
+        "¿Qué es Magic?",
+        "¿En qué consiste MTG?",
+        "¿Cómo se juega este juego?"
+    ]
+    for query in variations:
+        result = orch.handle_message(f"session-{query[:10]}", query)
+        assert result.type == ResponseType.CONVERSATION
+        assert "juego de cartas" in result.message.lower()
+        assert not result.message.endswith("¿En qué puedo ayudarte?")
+
+
+def test_general_greeting_returns_welcome():
+    orch = MTGOrchestrator()
+    result = orch.handle_message("session-greeting", "Hola")
+
+    assert result.type == ResponseType.CONVERSATION
+    assert "¡hola!" in result.message.lower()
+    assert "asistente" in result.message.lower()
+    # Menú completo hardcodeado de 4 puntos ya no debe aparecer
+    assert "1. **reglas del juego**" not in result.message.lower()
+
+
+def test_general_question_delegates_to_llm(monkeypatch):
+    orch = MTGOrchestrator()
+    captured_messages = []
+
+    def mock_generate_text(messages, deployment=None, timeout=10.0):
+        captured_messages.extend(messages)
+        return "Magic fue creado por Richard Garfield en 1993."
+
+    monkeypatch.setattr(orch.llm, "generate_text", mock_generate_text)
+    result = orch.handle_message("session-llm", "¿Quién creó Magic y en qué año?")
+
+    assert result.type == ResponseType.CONVERSATION
+    assert "Richard Garfield" in result.message
+    # Check that system prompt follows required constraints
+    sys_content = next(m["content"] for m in captured_messages if m["role"] == "system")
+    assert "responder directamente" in sys_content.lower()
+    assert "no inventar texto oracle" in sys_content.lower()
+    assert "comprehensive rules" in sys_content.lower()
+
+
+
