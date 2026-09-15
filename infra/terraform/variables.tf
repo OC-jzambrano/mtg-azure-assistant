@@ -97,3 +97,15 @@ variable "tags" {
   }
   description = "Resource tags"
 }
+
+variable "langfuse_base_url" {
+  type        = string
+  default     = "https://cloud.langfuse.com"
+  description = "Langfuse project region endpoint. Keys are provisioned separately in Key Vault."
+}
+
+variable "langfuse_capture_content" {
+  type        = bool
+  default     = true
+  description = "Capture chat content in Langfuse, matching the application default."
+}

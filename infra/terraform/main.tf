@@ -294,6 +294,26 @@ resource "azurerm_container_app" "backend" {
         name  = "RAG_BACKEND"
         value = "auto"
       }
+      env {
+        name  = "LANGFUSE_ENABLED"
+        value = "true"
+      }
+      env {
+        name        = "LANGFUSE_PUBLIC_KEY"
+        secret_name = "langfuse-public-key"
+      }
+      env {
+        name        = "LANGFUSE_SECRET_KEY"
+        secret_name = "langfuse-secret-key"
+      }
+      env {
+        name  = "LANGFUSE_BASE_URL"
+        value = var.langfuse_base_url
+      }
+      env {
+        name  = "LANGFUSE_CAPTURE_CONTENT"
+        value = tostring(var.langfuse_capture_content)
+      }
 
       # Health probes
       liveness_probe {
@@ -328,6 +348,18 @@ resource "azurerm_container_app" "backend" {
   }
 
   tags = var.tags
+
+  # Provision these values separately; credentials never enter Terraform state.
+  secret {
+    name                = "langfuse-public-key"
+    key_vault_secret_id = "${azurerm_key_vault.kv.vault_uri}secrets/langfuse-public-key"
+    identity            = azurerm_user_assigned_identity.ca_identity.id
+  }
+  secret {
+    name                = "langfuse-secret-key"
+    key_vault_secret_id = "${azurerm_key_vault.kv.vault_uri}secrets/langfuse-secret-key"
+    identity            = azurerm_user_assigned_identity.ca_identity.id
+  }
 
   depends_on = [
     azurerm_key_vault_access_policy.ca_identity_access,

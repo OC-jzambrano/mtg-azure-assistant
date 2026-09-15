@@ -46,6 +46,13 @@ button:focus-visible { outline: 2px solid #386b60; outline-offset: 3px; }
 }
 
 .message-cards { display: flex; flex-wrap: wrap; gap: 16px; width: 100%; margin-top: 12px; }
+#chat-ui-container .nlux-launchPad-container { justify-content: safe center; min-height: 0; overflow-y: auto; gap: 28px; padding: 24px 16px; }
+#chat-ui-container .nlux-launchPad-container > .nlux-comp-welcomeMessage { flex: 0 0 auto; height: auto; }
+#chat-ui-container .nlux-launchPad-container > .nlux-conversationStarters-container { flex: 0 0 auto; overflow: visible; width: 100%; }
+#chat-ui-container .nlux-comp-conversationStarters { width: 100%; min-width: 0; flex-wrap: wrap; gap: 10px; padding: 0; }
+#chat-ui-container .nlux-comp-conversationStarter { width: 250px; max-width: 100%; height: auto; min-height: 96px; padding: 16px 18px; border: 1px solid var(--tutor-border); border-radius: 12px; }
+#chat-ui-container .nlux-comp-conversationStarter-prompt { display: block; overflow: visible; -webkit-line-clamp: unset; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+#chat-ui-container .nlux-comp-conversationStarter:hover { border-color: var(--tutor-accent); }
 .message-cards .result-card { flex: 0 1 220px; max-width: 100%; color: var(--tutor-text); }
 .message-cards .result-card img { display: block; height: auto; margin-bottom: 8px; }
 .message-cards .result-card p { margin: 6px 0 0; font-size: 13px; color: var(--tutor-text-muted); }
