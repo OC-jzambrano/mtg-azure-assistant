@@ -171,10 +171,10 @@ class RulesRepository:
             title,
             content,
             metadata,
-            1 - (embedding <=> %(query_embedding)s) AS score
+            1 - (embedding <=> %(query_embedding)s::vector) AS score
         FROM mtg_rules
         WHERE embedding IS NOT NULL
-        ORDER BY embedding <=> %(query_embedding)s
+        ORDER BY embedding <=> %(query_embedding)s::vector
         LIMIT %(top_k)s;
         """
 

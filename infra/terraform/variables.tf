@@ -42,7 +42,6 @@ variable "postgres_admin_user" {
 
 variable "postgres_admin_password" {
   type        = string
-  default     = "P@ssw0rdMTG2026!Secure"
   sensitive   = true
   description = "Admin password for PostgreSQL Flexible Server"
 }

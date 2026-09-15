@@ -55,6 +55,30 @@ class MTGOrchestrator:
         if any(w in msg for w in ["crea", "crear", "créame", "diseña", "inventa", "custom", "han solo"]):
             return ResponseType.CUSTOM_CARD
 
+        # Check for explicit card search requests (prioritized over incidental "mana" mentions)
+        explicit_search_patterns = [
+            r"\bbusc[oa]\s+(?:una\s+)?cartas?\b",
+            r"\bbuscar\s+(?:una\s+)?cartas?\b",
+            r"\bencuentra\s+(?:una\s+)?cartas?\b",
+            r"\bdime\s+(?:una\s+)?cartas?\b",
+            r"^busc[oa]\b",
+            r"^buscar\b",
+            r"^encuentra\b",
+        ]
+        is_search_request = any(re.search(pat, msg) for pat in explicit_search_patterns)
+
+        # Distinguish rule questions (e.g. "¿cómo funciona el maná?", "¿qué pasa si...?")
+        is_rule_question = any(q in msg for q in [
+            "cómo funciona", "como funciona", "qué pasa si", "que pasa si",
+            "qué ocurre", "que ocurre", "cuáles son", "cuales son",
+            "interactúa", "interactua", "interactúan", "interactuan",
+            "aplico el daño", "entra el daño", "daña primero", "daño primero",
+            "fases del turno", "fases en un turno"
+        ])
+
+        if is_search_request and not is_rule_question:
+            return ResponseType.CARD_SEARCH
+
         # 2. Rules / Combat Interaction Intent
         rule_signals = [
             "fases", "fase", "turno", "maná", "mana", "reserva", "pool",
@@ -66,10 +90,12 @@ class MTGOrchestrator:
             "contrarresta", "counter", "reemplazo", "replacement", "dispara", "disparada",
             "habilidad", "habilidades", "efecto", "efectos", "objetivo", "target"
         ]
+
         if any(w in msg for w in rule_signals):
             return ResponseType.RULES
 
-        # 3. Card Search Intent (explicit or follow-up refinement)
+
+        # 3. Card Search Intent (general signals)
         search_signals = ["busco", "busca", "buscar", "carta", "cartas", "encuentra", "dime una carta"]
         if any(w in msg for w in search_signals):
             return ResponseType.CARD_SEARCH
@@ -84,56 +110,96 @@ class MTGOrchestrator:
     def _extract_search_filters(self, message: str, existing_filter: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extracts structured search entities and canonicalizes them into standard domain values:
-        - Colors canonical: 'W', 'U', 'B', 'R', 'G'
+        - Colors canonical: 'W', 'U', 'B', 'R', 'G' (supports singular and plural: rojos, rojas, etc.)
         - Subtypes canonical: 'Warrior', 'Ninja', 'Dragon', etc.
+        - Cost / CMC parsing (both digits and Spanish word numbers up to 10)
         """
         msg = message.lower()
         filters = dict(existing_filter)
 
-        # Canonical Colors (SPEC 11)
+        # Canonical Colors (SPEC 11) - supports singular and plural
         color_patterns = {
-            "W": [r"\bblanco\b", r"\bblanca\b", r"\bwhite\b", r"\bw\b"],
-            "U": [r"\bazul\b", r"\bblue\b", r"\bu\b"],
-            "B": [r"\bnegro\b", r"\bnegra\b", r"\bblack\b", r"\bb\b"],
-            "R": [r"\brojo\b", r"\broja\b", r"\bred\b", r"\br\b"],
-            "G": [r"\bverde\b", r"\bgreen\b", r"\bg\b"],
+            "W": [r"\bblancos?\b", r"\bblancas?\b", r"\bwhite\b", r"\bw\b"],
+            "U": [r"\bazules?\b", r"\bblue\b", r"\bu\b"],
+            "B": [r"\bnegros?\b", r"\bnegras?\b", r"\bblack\b", r"\bb\b"],
+            "R": [r"\brojos?\b", r"\brojas?\b", r"\bred\b", r"\br\b"],
+            "G": [r"\bverdes?\b", r"\bgreen\b", r"\bg\b"],
         }
         for code, patterns in color_patterns.items():
             if any(re.search(pat, msg) for pat in patterns):
                 filters["color"] = code
                 break
 
-        # Canonical Subtypes (SPEC 11)
+        # Canonical Subtypes (SPEC 11) - supports singular and plural
         subtype_patterns = {
-            "Warrior": [r"\bguerrero\b", r"\bguerrera\b", r"\bwarrior\b"],
-            "Ninja": [r"\bninja\b"],
-            "Soldier": [r"\bsoldado\b", r"\bsoldier\b"],
-            "Knight": [r"\bcaballero\b", r"\bknight\b"],
-            "Wizard": [r"\bmago\b", r"\bwizard\b"],
-            "Cleric": [r"\bclerigo\b", r"\bclérigo\b", r"\bcleric\b"],
-            "Rogue": [r"\bpicaro\b", r"\bpícaro\b", r"\brogue\b"],
-            "Dragon": [r"\bdragon\b", r"\bdragón\b"],
-            "Bird": [r"\bave\b", r"\bpajaro\b", r"\bbird\b"],
-            "Elf": [r"\belfo\b", r"\belf\b"],
-            "Zombie": [r"\bzombie\b"],
+            "Warrior": [r"\bguerrer[oa]s?\b", r"\bwarriors?\b"],
+            "Ninja": [r"\bninjas?\b"],
+            "Soldier": [r"\bsoldados?\b", r"\bsoldiers?\b"],
+            "Knight": [r"\bcaballeros?\b", r"\bknights?\b"],
+            "Wizard": [r"\bmag[oa]s?\b", r"\bwizards?\b"],
+            "Cleric": [r"\bcl[eé]rig[oa]s?\b", r"\bclerics?\b"],
+            "Rogue": [r"\bp[ií]car[oa]s?\b", r"\brogues?\b"],
+            "Dragon": [r"\bdrag[oó]n(?:es)?\b"],
+            "Bird": [r"\baves?\b", r"\bp[aá]jar[oa]s?\b", r"\bbirds?\b"],
+            "Elf": [r"\belf[oa]s?\b", r"\belves\b"],
+            "Zombie": [r"\bzombies?\b"],
         }
         for subtype_canonical, patterns in subtype_patterns.items():
             if any(re.search(pat, msg) for pat in patterns):
                 filters["subtype"] = subtype_canonical
                 break
 
-        # CMC / Cost
-        if "menos de dos" in msg or "inferior a dos" in msg or "menor a dos" in msg or "coste < 2" in msg:
-            filters["max_cmc"] = 1
-            filters["cmc"] = None
-        elif "solo uno" in msg or "coste uno" in msg or "coste 1" in msg or "cmc 1" in msg or "un maná" in msg or "1 maná" in msg:
+        # Number word mapping for Spanish
+        number_words = {
+            "cero": 0, "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3,
+            "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8,
+            "nueve": 9, "diez": 10
+        }
+
+        def _to_int(val: str) -> Optional[int]:
+            if val.isdigit():
+                return int(val)
+            return number_words.get(val.lower())
+
+        num_pattern = r"(\d+|cero|uno|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)"
+
+        # 1. Strict Less Than (< N)
+        m_less = re.search(rf"(?:coste\s+)?(?:inferior|menor|menos)\s+(?:a|de|que)\s+{num_pattern}", msg)
+        if not m_less:
+            m_less = re.search(r"coste\s*<\s*(\d+)", msg)
+        if m_less:
+            val = _to_int(m_less.group(1))
+            if val is not None:
+                filters["max_cmc"] = max(0, val - 1)
+                filters["cmc"] = None
+                return filters
+
+        # 2. Less than or equal (<= N)
+        m_le = re.search(rf"(?:coste\s+)?(?:menor\s+o\s+igual|como\s+m[aá]ximo|hasta)\s+(?:a\s+)?{num_pattern}", msg)
+        if not m_le:
+            m_le = re.search(r"coste\s*<=\s*(\d+)", msg)
+        if m_le:
+            val = _to_int(m_le.group(1))
+            if val is not None:
+                filters["max_cmc"] = val
+                filters["cmc"] = None
+                return filters
+
+        # 3. Exact Cost (== N)
+        m_exact = re.search(rf"(?:coste\s+(?:exacto\s+|igual\s+a\s+|de\s+)?|cmc\s+|solo\s+){num_pattern}", msg)
+        if m_exact:
+            val = _to_int(m_exact.group(1))
+            if val is not None:
+                filters["cmc"] = val
+                filters["max_cmc"] = None
+                return filters
+
+        if "un maná" in msg or "1 maná" in msg:
             filters["cmc"] = 1
-            filters["max_cmc"] = None
-        elif "coste dos" in msg or "coste 2" in msg:
-            filters["cmc"] = 2
             filters["max_cmc"] = None
 
         return filters
+
 
     def handle_message(self, conversation_id: str, message: str) -> AssistantResult:
         ctx = self.memory.get_or_create_conversation(conversation_id)
@@ -175,7 +241,8 @@ class MTGOrchestrator:
         and known canonical card identifiers.
         """
         candidates: List[str] = []
-        msg = message.strip()
+        # Normalize whitespace, newlines, and tabs
+        msg = re.sub(r"\s+", " ", message).strip()
 
         # 1. Quoted card names: "Lightning Bolt", 'Sheoldred'
         quoted = re.findall(r"[\"']([^\"']+)[\"']", msg)
@@ -292,6 +359,15 @@ class MTGOrchestrator:
                 active_filters=None
             )
 
+        # Deduplicate resolved cards by name preserving order
+        unique_resolved: List[CardItem] = []
+        seen_resolved = set()
+        for c in resolved_cards:
+            if c.name.lower() not in seen_resolved:
+                seen_resolved.add(c.name.lower())
+                unique_resolved.append(c)
+        resolved_cards = unique_resolved
+
         # Convert resolved CardItem to domain CardResult
         cards_typed: List[CardResult] = [
             CardResult(
@@ -305,6 +381,7 @@ class MTGOrchestrator:
             )
             for c in resolved_cards
         ]
+
 
         # 3. Contextual RAG query expansion with verified card facts
         rag_query = message

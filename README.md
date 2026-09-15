@@ -140,7 +140,8 @@ Las pruebas están estrictamente desacopladas para garantizar ejecuciones determ
   # o explícitamente:
   pytest tests/unit -v
   ```
-  *68 tests que validan los 5 escenarios de aceptación, contrato API, los 4 flujos, multi-turno HTTP, pgvector RAG, resiliencia de fallback, embeddings mock y observabilidad en <2 segundos.*
+  *72 tests que validan los 5 escenarios de aceptación, contrato API, los 4 flujos, multi-turno HTTP, pgvector RAG, resiliencia de fallback, embeddings mock y observabilidad en <2 segundos.*
+
 
 * **Tests de Integración en Vivo**:
   ```bash

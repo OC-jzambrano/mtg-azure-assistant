@@ -1,3 +1,4 @@
+import atexit
 import logging
 from contextlib import contextmanager
 from typing import Generator, Optional
@@ -89,3 +90,4 @@ class Database:
 
 # Default global instance
 database = Database()
+atexit.register(database.close)

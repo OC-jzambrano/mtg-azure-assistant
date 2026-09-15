@@ -155,7 +155,28 @@ class CustomCardAgent:
         """
         msg_lower = message.lower()
 
-        # Canonical benchmark: Han Solo Boros with first strike
+        # 1. Darth Vader / Dimir contextual design
+        if "vader" in msg_lower or ("negra" in msg_lower and "azul" in msg_lower) or ("negro" in msg_lower and "azul" in msg_lower):
+            output = CustomCardOutput(
+                name="Darth Vader, Señor Oscuro de los Sith",
+                mana_cost="{2}{U}{B}",
+                cmc=4.0,
+                type_line="Criatura legendaria — Humano Sith",
+                power="4",
+                toughness="4",
+                oracle_text=(
+                    "* **Amenaza** (*Menace*).\n"
+                    "  * *Estrangulamiento de la Fuerza*: Cuando Darth Vader entre al campo de batalla, "
+                    "destruye la criatura objetivo que controla un oponente a menos que ese jugador pague 3 vidas.\n"
+                    "  * *Coerción mental*: {1}{U}{B}, {T}: El oponente objetivo muestra su mano. Elige una carta que no sea tierra de ahí. "
+                    "Ese jugador descarta esa carta."
+                ),
+                flavor_text="Encuentro tu falta de fe perturbadora.",
+                color_pie_rationale="Diseño balanceado Dimir ({U}{B}): El negro aporta destrucción implacable y ambición cruel, mientras el azul aporta control mental, telequinesis y anticipación táctica."
+            )
+            return self._format_response(output)
+
+        # 2. Canonical benchmark: Han Solo Boros with first strike (default fallback)
         output = CustomCardOutput(
             name="Han Solo, Capitán del Halcón",
             mana_cost="{1}{R}{W}",
@@ -174,3 +195,4 @@ class CustomCardAgent:
         )
 
         return self._format_response(output)
+

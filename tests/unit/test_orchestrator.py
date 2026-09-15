@@ -80,3 +80,51 @@ def test_orchestrator_rules_lightning_bolt_ward():
     citations = [s.reference for s in result.sources]
     assert any("702.21" in cit for cit in citations)
 
+
+def test_orchestrator_search_with_mana_keyword(mock_mtg_tool):
+    """Verifies that mentioning 'mana' in a search request does not trigger the rules intent."""
+    orch = MTGOrchestrator()
+    query = "Busco una carta de color blanco de coste inferior a dos de mana que sea guerrero"
+    res = orch.handle_message("sess-search-mana", query)
+
+    assert res.type == ResponseType.CARD_SEARCH
+    assert res.active_filters.color == "W"
+    assert res.active_filters.subtype == "Warrior"
+    assert res.active_filters.max_cmc == 1
+
+
+def test_orchestrator_search_with_plurals_and_word_cmc(mock_mtg_tool):
+    """Verifies that plural colors ('rojas') and Spanish word numbers ('cinco') are parsed accurately."""
+    orch = MTGOrchestrator()
+    query = "Encuentra cartas de tipo dragón rojas que tengan coste exacto cinco"
+    res = orch.handle_message("sess-search-plurals", query)
+
+    assert res.type == ResponseType.CARD_SEARCH
+    assert res.active_filters.color == "R"
+    assert res.active_filters.subtype == "Dragon"
+    assert res.active_filters.cmc == 5
+
+
+def test_orchestrator_rules_card_with_newlines():
+    """Verifies that card names spanning newlines/extra spaces are properly normalized."""
+    orch = MTGOrchestrator()
+    query = "¿Qué pasa si uso Lightning\n  Bolt sobre una criatura con Ward?"
+    res = orch.handle_message("sess-newlines", query)
+
+    assert res.type == ResponseType.RULES
+    assert len(res.cards) == 1
+    assert res.cards[0].name == "Lightning Bolt"
+
+
+def test_orchestrator_custom_card_darth_vader():
+    """Verifies that Darth Vader request generates a Dimir card in local fallback mode."""
+    orch = MTGOrchestrator()
+    query = "Créame una carta custom de Darth Vader negra y azul"
+    res = orch.handle_message("sess-vader", query)
+
+    assert res.type == ResponseType.CUSTOM_CARD
+    assert len(res.cards) == 1
+    assert "Darth Vader" in res.cards[0].name
+    assert "{U}" in res.cards[0].mana_cost and "{B}" in res.cards[0].mana_cost
+
+

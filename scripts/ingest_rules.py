@@ -114,4 +114,7 @@ def ingest_rules():
 
 
 if __name__ == "__main__":
-    ingest_rules()
+    try:
+        ingest_rules()
+    finally:
+        database.close()

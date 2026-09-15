@@ -57,15 +57,18 @@ def apply_schema():
     CREATE INDEX IF NOT EXISTS idx_mtg_rules_rule_id ON mtg_rules (rule_id);
     """
 
-    with database.connection() as conn:
-        with conn.cursor() as cur:
-            logger.info("Executing base schema.sql DDL...")
-            cur.execute(schema_sql)
-            logger.info("Executing idempotent migration guards...")
-            cur.execute(migration_sql)
-            conn.commit()
+    try:
+        with database.connection() as conn:
+            with conn.cursor() as cur:
+                logger.info("Executing base schema.sql DDL...")
+                cur.execute(schema_sql)
+                logger.info("Executing idempotent migration guards...")
+                cur.execute(migration_sql)
+                conn.commit()
 
-    logger.info("✅ Schema and indexes applied successfully to PostgreSQL!")
+        logger.info("✅ Schema and indexes applied successfully to PostgreSQL!")
+    finally:
+        database.close()
 
 
 if __name__ == "__main__":

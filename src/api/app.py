@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from src.config import settings
 from src.orchestrator import MTGOrchestrator
@@ -30,6 +32,7 @@ app.add_middleware(
 )
 
 orchestrator = MTGOrchestrator()
+app.mount("/chat", StaticFiles(directory=Path(__file__).resolve().parents[1] / "ui" / "web", html=True), name="chat-ui")
 
 
 @app.get("/")

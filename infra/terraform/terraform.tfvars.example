@@ -5,8 +5,15 @@ openai_location = "swedencentral"
 container_image = "ghcr.io/your-org/mtg-azure-assistant:latest"
 app_port        = 8000
 
+# PostgreSQL Administrator Credentials
+# NOTE: Never commit production passwords to version control.
+# Can also be set via environment variable: TF_VAR_postgres_admin_password="your-password"
+postgres_admin_user     = "mtgadmin"
+postgres_admin_password = "ChangeMe_SecurePassword2026!"
+
 tags = {
   Project     = "MTG Call Center Assistant"
   Environment = "Production"
   ManagedBy   = "Terraform"
 }
+

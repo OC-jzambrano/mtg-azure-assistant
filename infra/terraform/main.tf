@@ -160,12 +160,12 @@ resource "azurerm_cognitive_deployment" "gpt4o_mini" {
 }
 
 resource "azurerm_cognitive_deployment" "embeddings" {
-  name                 = "text-embedding-3-large"
+  name                 = "text-embedding-3-small"
   cognitive_account_id = azurerm_cognitive_account.openai.id
 
   model {
     format  = "OpenAI"
-    name    = "text-embedding-3-large"
+    name    = "text-embedding-3-small"
     version = "1"
   }
 
@@ -201,6 +201,19 @@ resource "azurerm_key_vault" "kv" {
   tags = var.tags
 }
 
+# Key Vault Secrets for sensitive application credentials
+resource "azurerm_key_vault_secret" "openai_key" {
+  name         = "azure-openai-api-key"
+  value        = azurerm_cognitive_account.openai.primary_access_key
+  key_vault_id = azurerm_key_vault.kv.id
+}
+
+resource "azurerm_key_vault_secret" "database_url" {
+  name         = "database-url"
+  value        = "postgresql://${var.postgres_admin_user}:${var.postgres_admin_password}@${azurerm_postgresql_flexible_server.postgres.fqdn}:5432/${azurerm_postgresql_flexible_server_database.mtg_db.name}?sslmode=require"
+  key_vault_id = azurerm_key_vault.kv.id
+}
+
 # 8. Azure Container App Environment & Backend Container App
 resource "azurerm_container_app_environment" "cae" {
   name                       = "${var.prefix}-cae-${random_string.suffix.result}"
@@ -216,6 +229,21 @@ resource "azurerm_container_app" "backend" {
   resource_group_name          = azurerm_resource_group.rg.name
   revision_mode                = "Single"
 
+  secret {
+    name  = "azure-openai-key"
+    value = azurerm_cognitive_account.openai.primary_access_key
+  }
+
+  secret {
+    name  = "database-url"
+    value = "postgresql://${var.postgres_admin_user}:${var.postgres_admin_password}@${azurerm_postgresql_flexible_server.postgres.fqdn}:5432/${azurerm_postgresql_flexible_server_database.mtg_db.name}?sslmode=require"
+  }
+
+  secret {
+    name  = "appinsights-connection-string"
+    value = azurerm_application_insights.appinsights.connection_string
+  }
+
   template {
     min_replicas = 1
     max_replicas = 5
@@ -227,20 +255,44 @@ resource "azurerm_container_app" "backend" {
       memory = "1.0Gi"
 
       env {
-        name  = "APPLICATIONINSIGHTS_CONNECTION_STRING"
-        value = azurerm_application_insights.appinsights.connection_string
+        name        = "APPLICATIONINSIGHTS_CONNECTION_STRING"
+        secret_name = "appinsights-connection-string"
       }
       env {
         name  = "AZURE_OPENAI_ENDPOINT"
         value = azurerm_cognitive_account.openai.endpoint
       }
       env {
-        name  = "DATABASE_URL"
-        value = "postgresql://${var.postgres_admin_user}:${var.postgres_admin_password}@${azurerm_postgresql_flexible_server.postgres.fqdn}:5432/${azurerm_postgresql_flexible_server_database.mtg_db.name}?sslmode=require"
+        name        = "AZURE_OPENAI_API_KEY"
+        secret_name = "azure-openai-key"
+      }
+      env {
+        name  = "AZURE_OPENAI_DEPLOYMENT"
+        value = azurerm_cognitive_deployment.gpt4o_mini.name
+      }
+      env {
+        name  = "AZURE_OPENAI_DEPLOYMENT_REASONING"
+        value = azurerm_cognitive_deployment.gpt4o.name
+      }
+      env {
+        name  = "AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
+        value = azurerm_cognitive_deployment.embeddings.name
+      }
+      env {
+        name  = "EMBEDDING_DIMENSIONS"
+        value = "1536"
+      }
+      env {
+        name        = "DATABASE_URL"
+        secret_name = "database-url"
       }
       env {
         name  = "STORAGE_ACCOUNT_NAME"
         value = azurerm_storage_account.storage.name
+      }
+      env {
+        name  = "APP_ENV"
+        value = var.environment
       }
     }
   }
@@ -257,3 +309,4 @@ resource "azurerm_container_app" "backend" {
 
   tags = var.tags
 }
+

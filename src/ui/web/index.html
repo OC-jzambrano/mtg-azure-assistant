@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MTG Tutor</title>
+  <link rel="stylesheet" href="vendor/nova.css">
+  <link rel="stylesheet" href="vendor/ai_sidebar.css">
+  <link rel="stylesheet" href="standalone.css">
+</head>
+<body>
+<main id="offcanvasAiSidebar">
+  <aside id="history" aria-label="Conversaciones">
+    <div class="collection-brand"><img src="assets/island.jpg" alt="Ilustración de Island, Magic: The Gathering"><strong>MTG Tutor</strong><span>Tu mesa de consultas</span></div>
+    <button id="new-chat">＋ Nueva conversación</button>
+    <label class="search-label" for="chat-search">Buscar conversación</label>
+    <input id="chat-search" type="search" placeholder="Buscar…">
+    <h2>Conversaciones</h2><div id="sessions"></div>
+    <small class="local-note">Guardadas en este navegador</small>
+  </aside>
+  <div class="chat-workspace">
+  <header class="offcanvas-header ai-sidebar-header">
+    <div class="ai-sidebar-brand">
+      <img class="brand-avatar" src="assets/island.jpg" alt="">
+      <div class="ai-sidebar-brand-copy"><h1 class="offcanvas-title">MTG Tutor</h1><div class="ai-sidebar-subtitle">Magic: The Gathering</div><small id="status" role="status">Conectando…</small></div>
+    </div>
+    <div class="ai-sidebar-header-actions">
+      <button id="history-toggle" title="Conversaciones" aria-label="Conversaciones">☰</button>
+      <button id="theme" title="Cambiar tema" aria-label="Cambiar tema">◐</button>
+      <button id="export" title="Exportar conversación" aria-label="Exportar conversación">↓</button>
+      <button id="reset" class="ai-sidebar-reset" title="Nueva conversación" aria-label="Nueva conversación">↻</button>
+    </div>
+  </header>
+  <section class="offcanvas-body ai-sidebar-body">
+    <div id="chat-ui-container"></div>
+    <details id="resources"><summary>Cartas y fuentes <span id="resource-count"></span></summary><div id="resource-body"></div></details>
+    <p id="error" role="alert" hidden></p>
+  </section>
+  </div>
+</main>
+<script src="vendor/nlux-core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
