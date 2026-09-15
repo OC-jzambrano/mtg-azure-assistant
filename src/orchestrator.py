@@ -15,6 +15,7 @@ from src.services.rules_rag import RulesRAGStore, RuleChunk
 from src.services.memory import ConversationMemory
 from src.agents.rules_reasoning_agent import RulesReasoningAgent
 from src.agents.custom_card_agent import CustomCardAgent
+from src.agents.domain_guard import DomainGuard
 from src.services.llm import LLMService
 
 
@@ -42,14 +43,17 @@ class MTGOrchestrator:
         api_tool: Optional[MTGCardSearchTool] = None,
         rules_agent: Optional[RulesReasoningAgent] = None,
         custom_card_agent: Optional[CustomCardAgent] = None,
-        llm_service: Optional[LLMService] = None
+        llm_service: Optional[LLMService] = None,
+        domain_guard: Optional[DomainGuard] = None,
+        memory: Optional[ConversationMemory] = None
     ):
         self.rag = rag_store or RulesRAGStore()
         self.api_tool = api_tool or MTGCardSearchTool()
-        self.memory = ConversationMemory()
+        self.memory = memory or ConversationMemory()
         self.rules_agent = rules_agent or RulesReasoningAgent()
         self.custom_card_agent = custom_card_agent or CustomCardAgent()
         self.llm = llm_service or LLMService()
+        self.domain_guard = domain_guard or DomainGuard(llm_service=self.llm)
 
     def classify_intent(self, message: str, last_topic: Optional[str] = None) -> ResponseType:
         msg = message.lower().strip()
@@ -224,7 +228,22 @@ class MTGOrchestrator:
         elif resp_type == ResponseType.CUSTOM_CARD:
             res = self._handle_custom_card(conversation_id, message, locale=locale)
         else:
-            res = self._handle_general(conversation_id, message, locale=locale)
+            # ResponseType.CONVERSATION
+            # Apply Soft Domain Guard (preserves last_topic and previous_user_message)
+            user_messages = [m.content for m in ctx.messages[:-1] if m.role == "user"]
+            prev_user_msg = user_messages[-1] if user_messages else None
+            last_top = ctx.last_topic.value if hasattr(ctx.last_topic, "value") else ctx.last_topic
+
+            guard_res = self.domain_guard.evaluate(
+                message=message,
+                last_topic=last_top,
+                previous_user_message=prev_user_msg
+            )
+
+            if guard_res.action == "redirect":
+                res = self._handle_out_of_domain(conversation_id, locale=locale)
+            else:
+                res = self._handle_general(conversation_id, message, locale=locale)
 
         with tracing.observation(
             name="build_response",
@@ -683,6 +702,34 @@ class MTGOrchestrator:
                         "Puedo ayudarte con información general, dudas de reglas e interacciones, "
                         "búsqueda de cartas oficiales o diseño de cartas personalizadas. ¿En qué puedo orientarte?"
                     )
+
+        self.memory.add_assistant_message(
+            conversation_id=conversation_id,
+            content=reply,
+            sources=[],
+            cards=[],
+            topic=ResponseType.CONVERSATION
+        )
+        return AssistantResult(
+            type=ResponseType.CONVERSATION,
+            message=reply,
+            cards=[],
+            sources=[],
+            active_filters=None
+        )
+
+    def _handle_out_of_domain(self, conversation_id: str, locale: str = "es") -> AssistantResult:
+        if str(locale).lower().startswith("en"):
+            reply = (
+                "I specialize in **Magic: The Gathering**. I can help you with "
+                "cards, rules, interactions, decks, strategy, and custom card design."
+            )
+        else:
+            reply = (
+                "Estoy especializado en **Magic: The Gathering**. Puedo ayudarte con "
+                "cartas, reglas, interacciones, mazos, estrategia y diseño de cartas "
+                "personalizadas."
+            )
 
         self.memory.add_assistant_message(
             conversation_id=conversation_id,
