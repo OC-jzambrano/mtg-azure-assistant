@@ -55,6 +55,7 @@ def test_frontend_custom_card_rendering_logic():
     # Verify CSS styling for custom cards
     assert ".result-card.custom-card" in css
     assert ".custom-card-placeholder" in css
+    assert "height: 60px;" in css
     assert ".custom-card-oracle" in css
     assert ".custom-card-pt" in css
 

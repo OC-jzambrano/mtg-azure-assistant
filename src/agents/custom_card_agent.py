@@ -102,7 +102,7 @@ class CustomCardAgent:
             if self.llm.is_available():
                 structured_res = self._run_llm(message, locale=locale)
                 if structured_res:
-                    reply, card_result = self._format_response(structured_res)
+                    reply, card_result = self._format_response(structured_res, locale=locale)
                     safe_out = {
                         "card_name": card_result.name,
                         "mana_cost": card_result.mana_cost,
@@ -168,8 +168,9 @@ class CustomCardAgent:
             deployment=self.llm.deployment_reasoning
         )
 
-    def _format_response(self, output: CustomCardOutput) -> Tuple[str, CardResult]:
+    def _format_response(self, output: CustomCardOutput, locale: str = "es") -> Tuple[str, CardResult]:
         # Build honest CardResult (DoD: image_url must be None for custom designs)
+        # CardResult is the single source of truth for the complete visual card representation.
         card_result = CardResult(
             name=output.name,
             mana_cost=output.mana_cost,
@@ -184,21 +185,12 @@ class CustomCardAgent:
             set_name=None
         )
 
-        parts = [
-            f"### 🃏 {output.name}",
-            f"**{output.mana_cost}**",
-            f"**{output.type_line}**",
-            output.oracle_text
-        ]
+        # Brief introductory reply to avoid repeating card components already rendered by the UI
+        if str(locale).lower().startswith("en"):
+            reply = f"I've designed **{output.name}**, a custom card based on your request."
+        else:
+            reply = f"Te he preparado **{output.name}**, una carta personalizada basada en tu solicitud."
 
-        if output.power and output.toughness:
-            parts.append(f"**{output.power}/{output.toughness}**")
-
-        if output.flavor_text:
-            clean_flavor = output.flavor_text.strip().strip("«»\"'")
-            parts.append(f"*«{clean_flavor}»*")
-
-        reply = "\n\n".join(parts)
         return reply, card_result
 
     def _run_deterministic_fallback(self, message: str, locale: str = "es") -> Tuple[str, CardResult]:
@@ -227,7 +219,7 @@ class CustomCardAgent:
                 color_pie_rationale="Diseño balanceado Dimir ({U}{B}): El negro aporta destrucción implacable y ambición cruel, mientras el azul aporta control mental, telequinesis y anticipación táctica.",
                 art_prompt="A dramatic digital oil painting in the style of Magic: The Gathering card art, depicting Darth Vader standing in a dark metallic chamber with glowing red lights, raising a gloved hand with dark purple telekinetic force crackling around him, intense red lightsaber glowing, cinematic rim lighting, epic fantasy mood."
             )
-            return self._format_response(output)
+            return self._format_response(output, locale=locale)
 
         # 2. Canonical benchmark: Han Solo Boros with first strike (default fallback)
         output = CustomCardOutput(
@@ -247,5 +239,5 @@ class CustomCardAgent:
             color_pie_rationale="Diseño balanceado respetando la filosofía del Color Pie (iniciativa agresiva roja y lealtad/coordinación blanca).",
             art_prompt="A dynamic digital oil painting in the style of Magic: The Gathering card art, depicting a charismatic smuggler resembling Han Solo in a worn vest and holster, drawing a heavy blaster pistol in a crowded alien cantina, smoke and blaster fire in the background, warm cinematic lighting, heroic action composition."
         )
-        return self._format_response(output)
+        return self._format_response(output, locale=locale)
 

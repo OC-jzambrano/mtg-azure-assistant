@@ -25,13 +25,13 @@ def test_custom_card_agent_deterministic_han_solo():
     assert card.is_custom is True
     assert card.image_url is None  # Test E: Honest image_url handling
 
-    # Reply checks: clean presentation without internal leakage
+    # Reply checks: concise introduction without duplicating card fields
     assert "Han Solo, Capitán del Halcón" in reply
-    assert "{1}{R}{W}" in reply
-    assert "Criatura legendaria — Humano Bribón Piloto" in reply
-    assert "Dañar primero" in reply
-    assert "3/2" in reply
-    assert "«Nunca me digas las probabilidades.»" in reply
+    assert "{1}{R}{W}" not in reply
+    assert "Criatura legendaria — Humano Bribón Piloto" not in reply
+    assert "Dañar primero" not in reply
+    assert "3/2" not in reply
+    assert "Nunca me digas las probabilidades" not in reply
 
     # Test B: Verify reply does NOT leak internal prompts or AI providers
     assert "Prompt de Ilustración" not in reply
@@ -68,8 +68,9 @@ def test_custom_card_agent_llm_structured_mock():
     assert card.power == "4"
     assert card.toughness == "5"
     assert card.flavor_text == "Vuelvo a vosotros al cambiar la marea."
-    assert "4/5" in reply
     assert "Gandalf el Blanco" in reply
+    assert "4/5" not in reply
+    assert "{3}{W}{W}" not in reply
 
     # Test B: Reply hygiene
     assert "Prompt de Ilustración" not in reply
@@ -207,3 +208,45 @@ def test_orchestrator_dependency_injection_custom_agents():
     assert mock_card_agent.run.called
     assert res_custom.message == "Carta simulada"
     assert res_custom.cards[0].is_custom is True
+
+
+def test_custom_card_reply_does_not_duplicate_card_content():
+    """
+    Verifies that CardResult is the single source of truth for custom card details,
+    and that the assistant's reply does not duplicate mana_cost, type_line, oracle_text,
+    power/toughness, or flavor_text.
+    """
+    agent = CustomCardAgent(llm_service=LLMService(api_key=""))
+    output = CustomCardOutput(
+        name="Erudito de las Mareas",
+        mana_cost="{3}{U}{U}",
+        cmc=5.0,
+        type_line="Criatura — Humano Mago",
+        oracle_text="Cuando entre al campo de batalla, roba una carta.",
+        power="3",
+        toughness="4",
+        flavor_text="El flujo y reflujo de las mareas obedece al conocimiento.",
+        color_pie_rationale="Azul representa conocimiento y ventaja de cartas.",
+        art_prompt="A wise blue mage by the ocean shore."
+    )
+    reply, card = agent._format_response(output)
+
+    # CardResult holds all details (single source of truth for the UI)
+    assert card.name == "Erudito de las Mareas"
+    assert card.mana_cost == "{3}{U}{U}"
+    assert card.type_line == "Criatura — Humano Mago"
+    assert card.oracle_text == "Cuando entre al campo de batalla, roba una carta."
+    assert card.power == "3"
+    assert card.toughness == "4"
+    assert card.flavor_text == "El flujo y reflujo de las mareas obedece al conocimiento."
+    assert card.is_custom is True
+    assert card.image_url is None
+
+    # Reply is a concise introduction and does NOT duplicate card components
+    assert "{3}{U}{U}" not in reply
+    assert "Criatura — Humano Mago" not in reply
+    assert "Cuando entre al campo de batalla" not in reply
+    assert "3/4" not in reply
+    assert "El flujo y reflujo" not in reply
+    assert "Erudito de las Mareas" in reply
+
