@@ -7,7 +7,7 @@ Los pull requests ejecutan únicamente las pruebas.
 
 GitHub se autentica con OIDC mediante la identidad administrada `mtg-github-deploy`
 del grupo `mtg-assistant-prod-rg`. La federación acepta únicamente
-`repo:OC-jzambrano/mtg-azure-assistant:ref:refs/heads/main` y la audiencia
+`repo:OC-jzambrano@199658043/mtg-azure-assistant@1367648244:ref:refs/heads/main` y la audiencia
 `api://AzureADTokenExchange`. No se almacena una contraseña de Azure.
 
 Permisos de la identidad:
