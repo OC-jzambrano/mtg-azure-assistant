@@ -1,6 +1,7 @@
 name: MTG Assistant CI/CD
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
@@ -32,7 +33,11 @@ jobs:
   build-and-deploy:
     name: Build & Deploy to Azure Container Apps
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    concurrency:
+      group: azure-production
+      cancel-in-progress: false
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -47,8 +52,17 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_ACR_NAME AZURE_RG_NAME; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required GitHub secret: $name"
+              exit 1
+            fi
+          done
+
       - name: Azure Login
-        if: ${{ env.AZURE_CLIENT_ID != '' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -56,12 +70,10 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Docker Login to ACR
-        if: ${{ env.AZURE_CLIENT_ID != '' }}
         run: |
           az acr login --name ${{ secrets.AZURE_ACR_NAME }}
 
       - name: Build & Push Docker Image
-        if: ${{ env.AZURE_CLIENT_ID != '' }}
         run: |
           REGISTRY="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           docker build -t $REGISTRY/mtg-assistant:${{ github.sha }} -t $REGISTRY/mtg-assistant:latest .
@@ -69,9 +81,36 @@ jobs:
           docker push $REGISTRY/mtg-assistant:latest
 
       - name: Deploy Image to Azure Container Apps
-        if: ${{ env.AZURE_CLIENT_ID != '' }}
         run: |
           az containerapp update \
             --name mtg-assistant-app \
             --resource-group ${{ secrets.AZURE_RG_NAME }} \
-            --image ${{ secrets.AZURE_ACR_NAME }}.azurecr.io/mtg-assistant:${{ github.sha }}
+            --image ${{ secrets.AZURE_ACR_NAME }}.azurecr.io/mtg-assistant:${{ github.sha }} \
+            --revision-suffix sha-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} \
+            --output none
+
+      - name: Verify deployed revision and public frontend
+        shell: bash
+        run: |
+          revision="mtg-assistant-app--sha-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for attempt in $(seq 1 30); do
+            state=$(az containerapp revision show --name mtg-assistant-app \
+              --resource-group "$AZURE_RG_NAME" --revision "$revision" \
+              --query properties.healthState -o tsv)
+            [ "$state" = "Healthy" ] && break
+            sleep 10
+          done
+          [ "$state" = "Healthy" ] || { echo "::error::Revision is not healthy"; exit 1; }
+          host=$(az containerapp show --name mtg-assistant-app \
+            --resource-group "$AZURE_RG_NAME" --query properties.configuration.ingress.fqdn -o tsv)
+          curl --fail --retry 12 --retry-all-errors --retry-delay 5 "https://$host/health"
+          for attempt in $(seq 1 12); do
+            matched=true
+            for asset in index.html app.js standalone.css vendor/ai_sidebar.css; do
+              curl --fail --silent --show-error "https://$host/chat/$asset?revision=$GITHUB_SHA" -o /tmp/deployed-asset || { matched=false; break; }
+              cmp --silent "src/ui/web/$asset" /tmp/deployed-asset || { matched=false; break; }
+            done
+            [ "$matched" = true ] && break
+            sleep 5
+          done
+          [ "$matched" = true ] || { echo "::error::Public frontend does not match this commit"; exit 1; }
