@@ -1,0 +1,23 @@
+[project]
+name = "rag-code-review"
+version = "0.1.0"
+description = "Improved RAG pipeline for the code-review take-home exercise"
+requires-python = ">=3.11"
+dependencies = [
+  "chromadb>=0.5",
+  "openai>=1.0",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
