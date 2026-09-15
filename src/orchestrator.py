@@ -10,7 +10,7 @@ from src.api.schemas import (
 )
 from src.config import settings
 from src.observability.tracing import tracing
-from src.tools.mtg_api import MTGCardSearchTool, CardItem
+from src.tools.mtg_api import MTGCardSearchTool, CardItem, MTGAPIError
 from src.services.rules_rag import RulesRAGStore, RuleChunk
 from src.services.memory import ConversationMemory
 from src.agents.rules_reasoning_agent import RulesReasoningAgent
@@ -461,6 +461,7 @@ class MTGOrchestrator:
             as_type="tool",
             metadata=search_metadata
         ) as search_obs:
+            provider_error: Optional[MTGAPIError] = None
             try:
                 cards_raw = self.api_tool.search_cards(
                     color=active_raw.get("color"),
@@ -470,13 +471,42 @@ class MTGOrchestrator:
                     max_cmc=active_raw.get("max_cmc"),
                     limit=4
                 )
-                search_obs.update(output={
-                    "results_count": len(cards_raw),
-                    "card_names": [c.name for c in cards_raw]
-                })
-            except Exception as exc:
-                search_obs.update(level="ERROR", status_message=type(exc).__name__)
+                provider_status = "success" if cards_raw else "empty"
+                search_obs.update(
+                    output={
+                        "results_count": len(cards_raw),
+                        "card_names": [c.name for c in cards_raw],
+                        "provider": "magicthegathering.io",
+                        "provider_status": provider_status,
+                        "http_status": 200,
+                    }
+                )
+            except MTGAPIError as exc:
+                provider_error = exc
                 cards_raw = []
+                search_obs.update(
+                    level="ERROR",
+                    status_message=str(exc),
+                    metadata={
+                        **search_metadata,
+                        "provider": "magicthegathering.io",
+                        "provider_status": "error",
+                        "http_status": exc.status_code,
+                    }
+                )
+            except Exception as exc:
+                provider_error = MTGAPIError(str(exc))
+                cards_raw = []
+                search_obs.update(
+                    level="ERROR",
+                    status_message=str(exc),
+                    metadata={
+                        **search_metadata,
+                        "provider": "magicthegathering.io",
+                        "provider_status": "error",
+                        "http_status": None,
+                    }
+                )
 
         cards: List[CardResult] = [
             CardResult(
@@ -512,19 +542,48 @@ class MTGOrchestrator:
 
         desc_str = ", ".join(filter_desc)
 
-        if cards:
+        if provider_error is not None:
+            color_names_es = {"W": "blanco", "U": "azul", "B": "negro", "R": "rojo", "G": "verde"}
+            friendly_desc = []
+            if typed_filters.color:
+                c_name = color_names_es.get(typed_filters.color, typed_filters.color)
+                friendly_desc.append(f"color {c_name}")
+            if typed_filters.subtype:
+                friendly_desc.append(f"subtipo {typed_filters.subtype}")
+            if typed_filters.card_type:
+                friendly_desc.append(f"tipo {typed_filters.card_type}")
+            if typed_filters.cmc is not None:
+                friendly_desc.append(f"coste {typed_filters.cmc}")
+            elif typed_filters.max_cmc is not None:
+                friendly_desc.append(f"coste <= {typed_filters.max_cmc}")
+
+            desc_friendly_str = ", ".join(friendly_desc) if friendly_desc else "sin filtros específicos"
+            reply = (
+                f"No pude consultar el catálogo de Magic: The Gathering en este momento. "
+                f"Tus filtros se interpretaron correctamente como {desc_friendly_str}. "
+                f"Inténtalo de nuevo en unos segundos."
+            )
+            sources = []
+        elif cards:
             reply = f"He encontrado {len(cards)} cartas que cumplen tus criterios ({desc_str})."
+            sources = [
+                SourceRef(
+                    kind="external_api",
+                    title="Magic: The Gathering API",
+                    reference="cards",
+                    url="https://api.magicthegathering.io/v1/cards"
+                )
+            ]
         else:
             reply = f"No he encontrado cartas en la base de datos de MTG que coincidan con: {desc_str}."
-
-        sources = [
-            SourceRef(
-                kind="external_api",
-                title="Magic: The Gathering API",
-                reference="cards",
-                url="https://api.magicthegathering.io/v1/cards"
-            )
-        ]
+            sources = [
+                SourceRef(
+                    kind="external_api",
+                    title="Magic: The Gathering API",
+                    reference="cards",
+                    url="https://api.magicthegathering.io/v1/cards"
+                )
+            ]
 
         self.memory.add_assistant_message(
             conversation_id=conversation_id,

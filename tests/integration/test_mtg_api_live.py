@@ -4,7 +4,7 @@ from src.tools.mtg_api import MTGCardSearchTool
 
 @pytest.mark.integration
 def test_live_mtg_api_cards_search():
-    """Live integration test against https://api.magicthegathering.io/v1/cards."""
+    """Live integration test against https://api.magicthegathering.io/v1/cards with max_cmc."""
     tool = MTGCardSearchTool()
     results = tool.search_cards(color="W", subtype="Warrior", max_cmc=1, limit=3)
     assert len(results) > 0
@@ -12,3 +12,19 @@ def test_live_mtg_api_cards_search():
         assert card.cmc <= 1.0
         assert "Warrior" in card.type_line
         assert card.image_url.startswith("http")
+
+
+@pytest.mark.integration
+def test_live_exact_one_mana_white_warrior():
+    """Live integration test against exact 1-mana white warrior query."""
+    tool = MTGCardSearchTool()
+    results = tool.search_cards(
+        color="W",
+        subtype="Warrior",
+        cmc=1,
+        limit=3
+    )
+    assert len(results) > 0
+    for card in results:
+        assert card.cmc == 1.0
+        assert "Warrior" in card.type_line

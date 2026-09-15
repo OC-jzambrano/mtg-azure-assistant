@@ -1,6 +1,8 @@
 import pytest
 from src.orchestrator import MTGOrchestrator
 from src.api.schemas import ResponseType
+from src.tools.mtg_api import CardItem, MTGAPIError
+
 
 
 def test_orchestrator_classify_intent():
@@ -186,6 +188,106 @@ def test_general_question_delegates_to_llm(monkeypatch):
     assert "responder directamente" in sys_content.lower()
     assert "no inventar texto oracle" in sys_content.lower()
     assert "comprehensive rules" in sys_content.lower()
+
+
+def test_orchestrator_card_search_white_warrior_success(monkeypatch):
+    """
+    Verifies that 'Busco un guerrero blanco de coste uno' with a successful provider
+    returns CARD_SEARCH, active filters, cards, and 1 external_api source.
+    """
+    orch = MTGOrchestrator()
+    fake_cards = [
+        CardItem(
+            name="Dragon Hunter",
+            mana_cost="{W}",
+            cmc=1.0,
+            type_line="Creature — Human Warrior",
+            oracle_text="Protection from Dragons",
+            image_url="http://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=394541&type=card"
+        ),
+        CardItem(
+            name="Aven Skirmisher",
+            mana_cost="{W}",
+            cmc=1.0,
+            type_line="Creature — Bird Warrior",
+            oracle_text="Flying",
+            image_url="http://gatherer.wizards.com/Handlers/Image.ashx?multiverseid=391797&type=card"
+        )
+    ]
+
+    def fake_search(*args, **kwargs):
+        return fake_cards
+
+    monkeypatch.setattr(orch.api_tool, "search_cards", fake_search)
+
+    result = orch.handle_message("sess-success-ww1", "Busco un guerrero blanco de coste uno")
+
+    assert result.type == ResponseType.CARD_SEARCH
+    assert result.active_filters.color == "W"
+    assert result.active_filters.subtype == "Warrior"
+    assert result.active_filters.cmc == 1
+    assert len(result.cards) == 2
+    assert "He encontrado" in result.message
+    assert len(result.sources) == 1
+    assert result.sources[0].reference == "cards"
+
+
+def test_orchestrator_card_search_provider_error_handling(monkeypatch):
+    """
+    Verifies that when the provider raises MTGAPIError, the orchestrator:
+    - returns type CARD_SEARCH
+    - preserves active_filters
+    - returns cards = []
+    - returns sources = [] (does NOT attribute source on failure)
+    - responds explaining provider unavailability
+    - does NOT say 'No he encontrado cartas en la base de datos'
+    """
+    orch = MTGOrchestrator()
+
+    def fake_search_error(*args, **kwargs):
+        raise MTGAPIError("MTG API connection failure", status_code=503)
+
+    monkeypatch.setattr(orch.api_tool, "search_cards", fake_search_error)
+
+    result = orch.handle_message("sess-err-ww1", "Busco un guerrero blanco de coste uno")
+
+    assert result.type == ResponseType.CARD_SEARCH
+    assert result.active_filters.color == "W"
+    assert result.active_filters.subtype == "Warrior"
+    assert result.active_filters.cmc == 1
+    assert result.cards == []
+    assert result.sources == []
+    assert "No pude consultar el catálogo" in result.message
+    assert "No he encontrado cartas" not in result.message
+
+
+def test_orchestrator_card_search_empty_valid_response(monkeypatch):
+    """
+    Verifies that when the provider returns HTTP 200 with 0 results:
+    - returns type CARD_SEARCH
+    - preserves active_filters
+    - returns cards = []
+    - includes sources = 1 (valid evidence that catalog was queried)
+    - informs user that no cards matched
+    """
+    orch = MTGOrchestrator()
+
+    def fake_search_empty(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(orch.api_tool, "search_cards", fake_search_empty)
+
+    result = orch.handle_message("sess-empty-ww1", "Busco un guerrero blanco de coste uno")
+
+    assert result.type == ResponseType.CARD_SEARCH
+    assert result.active_filters.color == "W"
+    assert result.active_filters.subtype == "Warrior"
+    assert result.active_filters.cmc == 1
+    assert result.cards == []
+    assert len(result.sources) == 1
+    assert "No he encontrado cartas en la base de datos de MTG" in result.message
+    assert "No pude consultar" not in result.message
+
 
 
 

@@ -1,8 +1,25 @@
+import logging
+import time
 from typing import List, Optional, Dict, Any, Tuple
 import httpx
 from pydantic import BaseModel
 from src.config import settings
 from src.observability.tracing import tracing
+
+logger = logging.getLogger(__name__)
+
+
+class MTGAPIError(RuntimeError):
+    """Specific exception raised when the external MTG API provider fails."""
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class CardItem(BaseModel):
     name: str
@@ -132,7 +149,13 @@ KNOWN_CANONICAL_CARDS: Dict[str, CardItem] = {
 
 
 class MTGCardSearchTool:
-    """Tool that queries the official MTG API (magicthegathering.io) with structured parameters."""
+    """
+    Tool that queries the official MTG API (magicthegathering.io) with structured parameters.
+
+    NOTE / ADR: magicthegathering.io is officially marked as deprecated and announced to
+    operate until March 1, 2027. Future milestones should migrate to Scryfall API and/or
+    persistent PostgreSQL-backed card cache (mtg_card_cache JSONB).
+    """
     
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or settings.mtg_api_base_url
@@ -220,21 +243,72 @@ class MTGCardSearchTool:
         if cache_key in self._cache:
             return self._cache[cache_key][:limit]
 
-        # 2. Execute Request
+        # 2. Execute Request with single controlled retry for transient errors
+        url = f"{self.base_url}/cards"
+        response = None
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(2):
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    response = client.get(
+                        url,
+                        params=params,
+                        headers=self.headers
+                    )
+                # Transient status codes: retry once on first attempt
+                if response.status_code in (429, 500, 502, 503, 504) and attempt == 0:
+                    logger.warning(
+                        "MTG API transient error (attempt %d/2): status=%d params=%s",
+                        attempt + 1,
+                        response.status_code,
+                        params
+                    )
+                    time.sleep(0.3)
+                    continue
+                break
+            except httpx.TimeoutException as exc:
+                last_exc = exc
+                if attempt == 0:
+                    logger.warning("MTG API timeout on attempt 1/2, retrying: params=%s", params)
+                    time.sleep(0.3)
+                    continue
+                logger.warning("MTG API timeout after retry: params=%s", params)
+                raise MTGAPIError("MTG API timeout") from exc
+            except httpx.RequestError as exc:
+                last_exc = exc
+                if attempt == 0:
+                    logger.warning("MTG API connection error on attempt 1/2, retrying: %s params=%s", exc, params)
+                    time.sleep(0.3)
+                    continue
+                logger.warning("MTG API connection failure after retry: %s params=%s", exc, params)
+                raise MTGAPIError("MTG API connection failure") from exc
+
+        if response is None:
+            if isinstance(last_exc, httpx.TimeoutException):
+                raise MTGAPIError("MTG API timeout") from last_exc
+            raise MTGAPIError("MTG API connection failure") from last_exc
+
+        if response.status_code != 200:
+            logger.warning(
+                "MTG API request failed: status=%d params=%s",
+                response.status_code,
+                params
+            )
+            raise MTGAPIError(
+                f"MTG API returned HTTP {response.status_code}",
+                status_code=response.status_code
+            )
+
         try:
-            with httpx.Client(timeout=10.0) as client:
-                response = client.get(
-                    f"{self.base_url}/cards",
-                    params=params,
-                    headers=self.headers
-                )
-                if response.status_code != 200:
-                    return []
-                
-                data = response.json()
-                raw_cards = data.get("cards", [])
-        except Exception:
-            return []
+            data = response.json()
+        except ValueError as exc:
+            logger.warning("MTG API returned invalid JSON: params=%s", params)
+            raise MTGAPIError("MTG API returned invalid JSON") from exc
+
+        raw_cards = data.get("cards", [])
+        if not isinstance(raw_cards, list):
+            raise MTGAPIError("MTG API returned invalid cards payload")
 
         # 3. Parse and Deduplicate by Card Name with local <= max_cmc enforcement
         results: List[CardItem] = []

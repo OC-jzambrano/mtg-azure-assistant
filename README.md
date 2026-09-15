@@ -62,7 +62,7 @@ La solución se encuentra completamente desplegada y operativa en la nube de **M
 | **API** | FastAPI (`/api/chat`, `/health`, `/ready`) con Pydantic | Contenedor serverless escalable (1 a 3 réplicas) |
 | **Orquestador** | Router determinista central (<10ms triage) | Router con instrumentación OpenTelemetry + Langfuse |
 | **RAG / Reglas** | **PostgreSQL 16 + `pgvector` HNSW** + Fallback léxico | PostgreSQL Flexible Server v16 + `pgvector` (HNSW cosine) |
-| **Cartas / Herramienta** | Tool HTTP (`magicthegathering.io`) con corrección `max_cmc` | Tool con caché en PostgreSQL (`mtg_card_cache` JSONB) |
+| **Cartas / Herramienta** | Tool HTTP (`magicthegathering.io`) con corrección `max_cmc` y caché en memoria | Tool con caché en PostgreSQL (`mtg_card_cache` JSONB) |
 | **Memoria** | Gestor contextual multi-turno relacional | Tabla relacional `chat_sessions` en PostgreSQL (**Sin Redis**) |
 | **LLM** | Fallback determinista local sin internet | Azure OpenAI (`gpt-4o`, `gpt-4.1-mini`, `text-embedding-3-small`) |
 | **Observabilidad AI** | **Langfuse v4** (`tracing.py` con trazas y spans) | Langfuse Cloud v4 + OpenTelemetry |
