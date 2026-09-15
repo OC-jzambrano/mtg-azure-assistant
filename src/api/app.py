@@ -114,7 +114,8 @@ def chat(req: ChatRequest) -> ChatResponse:
     ) as trace:
         result = orchestrator.handle_message(
             conversation_id=req.conversation_id,
-            message=req.message
+            message=req.message,
+            locale=req.locale
         )
         trace_output = tracing.build_root_output(result)
         trace.update(output=trace_output)

@@ -13,6 +13,7 @@ class ResponseType(str, Enum):
 class ChatRequest(BaseModel):
     conversation_id: str = Field(min_length=1, max_length=100)
     message: str = Field(min_length=1, max_length=4000)
+    locale: str = Field(default="es", description="Idioma deseado para la respuesta.")
 
 
 class SourceRef(BaseModel):
@@ -30,6 +31,11 @@ class CardResult(BaseModel):
     oracle_text: Optional[str] = None
     image_url: Optional[str] = None
     set_name: Optional[str] = None
+    power: Optional[str] = None
+    toughness: Optional[str] = None
+    flavor_text: Optional[str] = None
+    is_custom: bool = False
+
 
 
 class CardSearchFilters(BaseModel):

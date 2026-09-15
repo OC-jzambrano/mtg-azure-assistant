@@ -102,3 +102,90 @@ def test_rules_agent_sheoldred_notion_thief_interaction():
     source_refs = [s.reference for s in sources]
     assert any("614" in ref for ref in source_refs)
 
+
+@pytest.mark.parametrize("scenario, raw_steps", [
+    (
+        "A_numbered_prefix",
+        [
+            "1. Estado de la mesa y habilidades de las cartas.",
+            "2. Timing y ventanas de prioridad en el combate.",
+            "3. Reglas oficiales aplicables (CR 702.48c y CR 702.7b).",
+            "4. Resolución concreta del combate y daño."
+        ]
+    ),
+    (
+        "B_paso_prefix",
+        [
+            "Paso 1: Estado de la mesa y habilidades de las cartas.",
+            "Paso 2: Timing y ventanas de prioridad en el combate.",
+            "Paso 3: Reglas oficiales aplicables (CR 702.48c y CR 702.7b).",
+            "Paso 4: Resolución concreta del combate y daño."
+        ]
+    ),
+    (
+        "C_clean_steps",
+        [
+            "Estado de la mesa y habilidades de las cartas.",
+            "Timing y ventanas de prioridad en el combate.",
+            "Reglas oficiales aplicables (CR 702.48c y CR 702.7b).",
+            "Resolución concreta del combate y daño."
+        ]
+    ),
+    (
+        "D_parentheses_and_dashes",
+        [
+            "1) Estado de la mesa y habilidades de las cartas.",
+            "2) Timing y ventanas de prioridad en el combate.",
+            "Paso 3 - Reglas oficiales aplicables (CR 702.48c y CR 702.7b).",
+            "4: Resolución concreta del combate y daño."
+        ]
+    ),
+    (
+        "E_nested_duplicate_prefix",
+        [
+            "1. 1. Estado de la mesa y habilidades de las cartas.",
+            "Paso 2: 2. Timing y ventanas de prioridad en el combate.",
+            "3. Reglas oficiales aplicables (CR 702.48c y CR 702.7b).",
+            "Paso 4: Resolución concreta del combate y daño."
+        ]
+    )
+])
+def test_rules_agent_formatting_no_duplicate_numbering(scenario, raw_steps):
+    """
+    Verifies that RulesReasoningAgent is the sole owner of step numbering.
+    Defensively strips pre-existing number prefixes (1., Paso 1:, 1), nested)
+    and formats them cleanly into 1., 2., 3., 4. without (CoT) or duplicate numbers.
+    """
+    agent = RulesReasoningAgent(llm_service=LLMService(api_key=""))
+    output = RulesReasoningOutput(
+        reasoning_steps=raw_steps,
+        verdict="Resolución válida.",
+        citations=["CR 702.48c"]
+    )
+    reply, sources = agent._format_response(output)
+
+    # 1. Verify single numbering sequence: 1., 2., 3., 4.
+    assert "1. Estado de la mesa" in reply
+    assert "2. Timing y ventanas" in reply
+    assert "3. Reglas oficiales" in reply
+    assert "4. Resolución concreta" in reply
+
+    # 2. Must NEVER contain duplicate or nested numbering
+    assert "1. 1." not in reply
+    assert "2. 2." not in reply
+    assert "3. 3." not in reply
+    assert "4. 4." not in reply
+    assert "1. Paso 1" not in reply
+    assert "2. Paso 2" not in reply
+    assert "3. Paso 3" not in reply
+    assert "4. Paso 4" not in reply
+
+    # 3. CR reference inside text must be preserved
+    assert "CR 702.48c" in reply
+
+    # 4. Must NOT contain CoT / Chain-of-Thought in visible text
+    assert "(CoT)" not in reply
+    assert "Chain-of-Thought" not in reply
+    assert "**Explicación paso a paso de las reglas de juego:**" in reply
+
+

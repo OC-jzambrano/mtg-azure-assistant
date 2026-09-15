@@ -15,18 +15,18 @@ class CustomCardOutput(BaseModel):
     """
     Structured Output schema for custom card design according to WotC Color Pie.
     """
-    name: str = Field(description="Nombre de la carta diseñada.")
+    name: str = Field(description="Nombre de la carta diseñada en el idioma solicitado (ej. español).")
     mana_cost: str = Field(description="Símbolos de coste de maná estándar de MTG, ej. '{1}{R}{W}'.")
     cmc: float = Field(description="Coste de maná convertido (CMC / Mana Value).")
-    type_line: str = Field(description="Línea de tipo canónica, ej. 'Criatura legendaria — Humano Bribón Piloto'.")
+    type_line: str = Field(description="Línea de tipo canónica en el idioma solicitado, ej. 'Criatura legendaria — Humano Bribón Piloto'.")
     power: Optional[str] = Field(default=None, description="Fuerza de la criatura (ej. '3') o None si no es criatura.")
     toughness: Optional[str] = Field(default=None, description="Resistencia de la criatura (ej. '2') o None si no es criatura.")
-    oracle_text: str = Field(description="Habilidades y texto de reglas usando la redacción canónica oficial de Magic.")
-    flavor_text: Optional[str] = Field(default=None, description="Texto de ambientación en cursiva.")
-    color_pie_rationale: str = Field(description="Explicación del balance mecánico y alineación con la filosofía del Color Pie.")
+    oracle_text: str = Field(description="Habilidades y texto de reglas usando la redacción canónica oficial de Magic en el idioma solicitado.")
+    flavor_text: Optional[str] = Field(default=None, description="Texto de ambientación en el idioma solicitado.")
+    color_pie_rationale: str = Field(description="Explicación interna del balance mecánico y alineación con la filosofía del Color Pie en el idioma solicitado.")
     art_prompt: Optional[str] = Field(
         default=None,
-        description="Prompt descriptivo en inglés optimizado para generadores de imágenes (DALL-E 3, Midjourney) con estilo artístico de Magic: The Gathering (óleo digital de fantasía, iluminación cinematográfica, composición dinámica y ambientación)."
+        description="Descripción visual interna opcional para una futura etapa de generación de arte. No mostrar al usuario."
     )
 
 
@@ -48,42 +48,73 @@ class CustomCardAgent:
         "3. Color Pie estricto: Blanco aporta orden, lealtad y primeras líneas; Rojo aporta agresividad, velocidad e impulsividad; "
         "Azul aporta conocimiento y evasión; Negro aporta sacrificio y ambición; Verde aporta crecimiento y naturaleza.\n"
         "4. Justificación obligatoria: Explica en 'color_pie_rationale' por qué la carta pertenece a sus colores asignados.\n"
-        "5. Prompt de arte (art_prompt): Genera SIEMPRE un prompt detallado en inglés optimizado para DALL-E 3 / Midjourney "
-        "describiendo la escena del arte de la carta al estilo pictórico de MTG (digital oil painting, epic fantasy art, dramatic lighting)."
+        "5. Prompt de arte interno (art_prompt): Opcionalmente describe de forma concisa la escena en inglés para la "
+        "metadata interna de una futura etapa de generación gráfica. Esta descripción es estrictamente interna y nunca "
+        "debe mostrarse al usuario ni incluirse en el texto de la respuesta.\n\n"
+        "POLÍTICA ESTRICTA DE IDIOMA Y LOCALIZACIÓN:\n"
+        "- Todos los campos visibles para el usuario (name, type_line, oracle_text, flavor_text y color_pie_rationale) "
+        "DEBEN generarse en el idioma solicitado por el parámetro locale (por defecto español, locale='es').\n"
+        "- Si locale == 'es':\n"
+        "  * El nombre/título de la carta debe estar en español. Los nombres propios (ej. 'Han Solo', 'Darth Vader') "
+        "se conservan, pero sus títulos y epítetos se adaptan al español (ej. 'Han Solo, Capitán del Halcón').\n"
+        "  * type_line debe estar completamente en español (ej. 'Criatura legendaria — Humano Bribón Piloto', 'Instantáneo', 'Encantamiento').\n"
+        "  * oracle_text debe usar exclusivamente la terminología española canónica oficial de Magic: The Gathering:\n"
+        "    - 'First strike' -> 'Dañar primero'\n"
+        "    - 'Flying' -> 'Volar'\n"
+        "    - 'Haste' -> 'Prisa'\n"
+        "    - 'Trample' -> 'Arrollar'\n"
+        "    - 'Menace' -> 'Amenaza'\n"
+        "    - 'Deathtouch' -> 'Toque mortal'\n"
+        "    - 'Lifelink' -> 'Vínculo vital'\n"
+        "    - 'Vigilance' -> 'Vigilancia'\n"
+        "    - 'Flash' -> 'Destello'\n"
+        "    - 'Hexproof' -> 'Antimaleficio'\n"
+        "    - 'Ward' -> 'Guardia'\n"
+        "    - 'Battlefield' -> 'Campo de batalla'\n"
+        "    - 'Graveyard' -> 'Cementerio'\n"
+        "    - 'Library' -> 'Biblioteca'\n"
+        "    - 'Whenever...' -> 'Siempre que...'\n"
+        "  * flavor_text y color_pie_rationale deben estar redactados íntegramente en español.\n"
+        "  * Los símbolos de maná estándar ({W}, {U}, {B}, {R}, {G}, {C}, {1}, etc.) nunca se traducen ni modifican.\n"
+        "  * NUNCA devuelvas campos visibles en inglés si el locale es 'es'. No mezcles idiomas."
     )
 
     def __init__(self, llm_service: Optional[LLMService] = None):
         self.llm = llm_service or LLMService()
 
-    def run(self, message: str) -> Tuple[str, CardResult]:
+    def run(self, message: str, locale: str = "es") -> Tuple[str, CardResult]:
         """
         Synthesizes a custom card based on user specifications.
+        Args:
+            message: User request description.
+            locale: Desired response language (defaults to "es").
         Returns:
             Tuple[str, CardResult]: Markdown presentation and typed CardResult (with image_url=None).
         """
         with tracing.observation(
             name="custom_card_agent",
             as_type="agent",
-            metadata={"llm_available": self.llm.is_available()}
+            metadata={"llm_available": self.llm.is_available(), "locale": locale}
         ) as agent_obs:
             fallback_reason = None
 
             # 1. Attempt LLM with Structured Outputs if available
             if self.llm.is_available():
-                structured_res = self._run_llm(message)
+                structured_res = self._run_llm(message, locale=locale)
                 if structured_res:
                     reply, card_result = self._format_response(structured_res)
                     safe_out = {
                         "card_name": card_result.name,
                         "mana_cost": card_result.mana_cost,
                         "cmc": card_result.cmc,
-                        "fallback_used": False
+                        "fallback_used": False,
+                        "locale": locale
                     }
                     if settings.langfuse_capture_content:
                         safe_out["oracle_text"] = card_result.oracle_text
                     agent_obs.update(
                         output=safe_out,
-                        metadata={"fallback_used": False, "llm_available": True}
+                        metadata={"fallback_used": False, "llm_available": True, "locale": locale}
                     )
                     return reply, card_result
                 else:
@@ -97,29 +128,38 @@ class CustomCardAgent:
                 as_type="span",
                 metadata={
                     "reason": fallback_reason,
-                    "agent": "custom_card"
+                    "agent": "custom_card",
+                    "locale": locale
                 }
             ):
-                reply, card_result = self._run_deterministic_fallback(message)
+                reply, card_result = self._run_deterministic_fallback(message, locale=locale)
 
             safe_out = {
                 "card_name": card_result.name,
                 "mana_cost": card_result.mana_cost,
                 "cmc": card_result.cmc,
-                "fallback_used": True
+                "fallback_used": True,
+                "locale": locale
             }
             if settings.langfuse_capture_content:
                 safe_out["oracle_text"] = card_result.oracle_text
             agent_obs.update(
                 output=safe_out,
-                metadata={"fallback_used": True, "llm_available": self.llm.is_available()}
+                metadata={"fallback_used": True, "llm_available": self.llm.is_available(), "locale": locale}
             )
             return reply, card_result
 
-    def _run_llm(self, message: str) -> Optional[CustomCardOutput]:
+    def _run_llm(self, message: str, locale: str = "es") -> Optional[CustomCardOutput]:
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
-            {"role": "user", "content": f"Solicitud del jugador:\n\"{message}\"\n\nDiseña la carta custom balanceada."}
+            {
+                "role": "user",
+                "content": (
+                    f"Solicitud del jugador:\n\"{message}\"\n\n"
+                    f"Locale solicitado: '{locale}'.\n"
+                    "Diseña la carta custom balanceada siguiendo las directrices del Color Pie y generando todos los campos visibles estrictamente en el idioma del locale."
+                )
+            }
         ]
 
         return self.llm.generate_structured(
@@ -136,28 +176,32 @@ class CustomCardAgent:
             cmc=output.cmc,
             type_line=output.type_line,
             oracle_text=output.oracle_text,
+            power=output.power,
+            toughness=output.toughness,
+            flavor_text=output.flavor_text,
+            is_custom=True,
             image_url=None,
             set_name=None
         )
 
-        pt_line = f"* **Fuerza / Resistencia**: `{output.power}/{output.toughness}`\n" if output.power and output.toughness else ""
-        flavor_line = f"* **Texto de Ambientación (*Flavor Text*)**:\n  > *«{output.flavor_text}»*\n\n" if output.flavor_text else ""
-        art_line = f"\n\n* **🎨 Prompt de Ilustración (DALL-E 3 / Midjourney)**:\n  > `{output.art_prompt}`\n" if output.art_prompt else ""
+        parts = [
+            f"### 🃏 {output.name}",
+            f"**{output.mana_cost}**",
+            f"**{output.type_line}**",
+            output.oracle_text
+        ]
 
-        reply = (
-            f"### 🃏 Carta Custom Creada: {output.name}\n\n"
-            f"* **Coste de Maná**: `{output.mana_cost}` (CMC: {int(output.cmc) if output.cmc.is_integer() else output.cmc})\n"
-            f"* **Tipo de Carta**: {output.type_line}\n"
-            f"{pt_line}"
-            f"* **Habilidades de Juego**:\n  {output.oracle_text}\n"
-            f"{flavor_line}"
-            f"*{output.color_pie_rationale}*"
-            f"{art_line}"
-        )
+        if output.power and output.toughness:
+            parts.append(f"**{output.power}/{output.toughness}**")
 
+        if output.flavor_text:
+            clean_flavor = output.flavor_text.strip().strip("«»\"'")
+            parts.append(f"*«{clean_flavor}»*")
+
+        reply = "\n\n".join(parts)
         return reply, card_result
 
-    def _run_deterministic_fallback(self, message: str) -> Tuple[str, CardResult]:
+    def _run_deterministic_fallback(self, message: str, locale: str = "es") -> Tuple[str, CardResult]:
         """
         Deterministic canonical generator for benchmark custom card (Han Solo) and generic fallback.
         """
@@ -173,10 +217,10 @@ class CustomCardAgent:
                 power="4",
                 toughness="4",
                 oracle_text=(
-                    "* **Amenaza** (*Menace*).\n"
-                    "  * *Estrangulamiento de la Fuerza*: Cuando Darth Vader entre al campo de batalla, "
-                    "destruye la criatura objetivo que controla un oponente a menos que ese jugador pague 3 vidas.\n"
-                    "  * *Coerción mental*: {1}{U}{B}, {T}: El oponente objetivo muestra su mano. Elige una carta que no sea tierra de ahí. "
+                    "**Amenaza**.\n\n"
+                    "Cuando Darth Vader entre al campo de batalla, "
+                    "destruye la criatura objetivo que controla un oponente a menos que ese jugador pague 3 vidas.\n\n"
+                    "{1}{U}{B}, {T}: El oponente objetivo muestra su mano. Elige una carta que no sea tierra de ahí. "
                     "Ese jugador descarta esa carta."
                 ),
                 flavor_text="Encuentro tu falta de fe perturbadora.",
@@ -194,15 +238,14 @@ class CustomCardAgent:
             power="3",
             toughness="2",
             oracle_text=(
-                "* **Dañar primero** (*First strike*).\n"
-                "  * *Disparó primero*: Siempre que Han Solo ataque o bloquee, si tienes una o menos cartas en tu mano, "
-                "obtiene +1/+0 y no puede ser bloqueado por criaturas con fuerza de 4 o más este combate.\n"
-                "  * *Tripulación intrépida*: {2}, {T}: El Vehículo objetivo que controlas se convierte en criatura artefacto hasta el final del turno."
+                "**Dañar primero**.\n\n"
+                "Siempre que Han Solo ataque o bloquee, si tienes una o menos cartas en tu mano, "
+                "obtiene +1/+0 y no puede ser bloqueado por criaturas con fuerza de 4 o más este combate.\n\n"
+                "{2}, {T}: El Vehículo objetivo que controlas se convierte en criatura artefacto hasta el final del turno."
             ),
             flavor_text="Nunca me digas las probabilidades.",
             color_pie_rationale="Diseño balanceado respetando la filosofía del Color Pie (iniciativa agresiva roja y lealtad/coordinación blanca).",
             art_prompt="A dynamic digital oil painting in the style of Magic: The Gathering card art, depicting a charismatic smuggler resembling Han Solo in a worn vest and holster, drawing a heavy blaster pistol in a crowded alien cantina, smoke and blaster fire in the background, warm cinematic lighting, heroic action composition."
         )
-
         return self._format_response(output)
 

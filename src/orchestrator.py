@@ -201,7 +201,7 @@ class MTGOrchestrator:
         return filters
 
 
-    def handle_message(self, conversation_id: str, message: str) -> AssistantResult:
+    def handle_message(self, conversation_id: str, message: str, locale: str = "es") -> AssistantResult:
         ctx = self.memory.get_or_create_conversation(conversation_id)
         self.memory.add_user_message(conversation_id, message)
 
@@ -219,7 +219,7 @@ class MTGOrchestrator:
         elif resp_type == ResponseType.CARD_SEARCH:
             res = self._handle_card_search(conversation_id, message)
         elif resp_type == ResponseType.CUSTOM_CARD:
-            res = self._handle_custom_card(conversation_id, message)
+            res = self._handle_custom_card(conversation_id, message, locale=locale)
         else:
             res = self._handle_general(conversation_id, message)
 
@@ -540,8 +540,8 @@ class MTGOrchestrator:
             active_filters=typed_filters
         )
 
-    def _handle_custom_card(self, conversation_id: str, message: str) -> AssistantResult:
-        reply, custom_card = self.custom_card_agent.run(message=message)
+    def _handle_custom_card(self, conversation_id: str, message: str, locale: str = "es") -> AssistantResult:
+        reply, custom_card = self.custom_card_agent.run(message=message, locale=locale)
 
         self.memory.add_assistant_message(
             conversation_id=conversation_id,

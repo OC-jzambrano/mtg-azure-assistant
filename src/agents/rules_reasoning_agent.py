@@ -14,11 +14,14 @@ logger = logging.getLogger("mtg_assistant.rules_agent")
 class RulesReasoningOutput(BaseModel):
     """
     Structured Output schema for Rules and Combat interactions.
-    Enforces Chain-of-Thought (CoT) reasoning before reaching the final verdict.
+    Provides a concise, verifiable 4-step explanation of game rules.
     """
     reasoning_steps: List[str] = Field(
-        description="Paso a paso del razonamiento Chain-of-Thought: 1. Estado de mesa y atacantes/bloqueadores, "
-                    "2. Ventana de prioridad y timing, 3. Reglas oficiales aplicables (CR), 4. Resolución concreta."
+        description="Exactamente 4 elementos con la explicación breve y verificable de las reglas de juego. "
+                    "Cada elemento debe contener ÚNICAMENTE el texto explicativo del paso, SIN numeración "
+                    "(NO incluir '1.', '1)', 'Paso 1:', etc.). "
+                    "Estructura: elemento 1 = estado relevante y habilidades, elemento 2 = timing y prioridad, "
+                    "elemento 3 = reglas oficiales CR aplicables, elemento 4 = resolución y consecuencias."
     )
     verdict: str = Field(
         description="Respuesta directa, clara y concluyente a la duda del jugador."
@@ -32,21 +35,26 @@ class RulesReasoningOutput(BaseModel):
 class RulesReasoningAgent:
     """
     Specialized Rules & Combat Reasoning Agent:
-    Applies Chain-of-Thought (CoT) over retrieved canonical rules and verified card Oracle text
+    Applies verifiable step-by-step reasoning over retrieved canonical rules and verified card Oracle text
     to resolve complex gameplay situations (e.g., First strike + Ninjutsu, Ward triggers, replacement effects).
     Integrates with Azure OpenAI with structured outputs and 100% deterministic local fallback.
     """
 
     SYSTEM_PROMPT = (
-        "Eres un Juez Oficial de Nivel 3 de Magic: The Gathering (Rules & Combat Reasoning Agent).\n"
+        "Eres un Juez Oficial de Nivel 3 de Magic: The Gathering.\n"
         "Tu función es resolver situaciones de juego, combate e interacciones complejas combinando con rigor:\n"
         "1. El texto Oracle oficial verificado de las cartas involucradas.\n"
         "2. Las reglas canónicas oficiales (Magic Comprehensive Rules - CR).\n\n"
-        "Debes estructurar tu razonamiento en 4 pasos obligatorios (Chain-of-Thought):\n"
-        "1. Estado de la mesa y habilidades: Permanentes, textos Oracle, atacantes/bloqueadores y tipos de efectos.\n"
-        "2. Timing y Prioridad: Ventanas legales de respuesta, estructura de fases/pasos y orden de la pila.\n"
-        "3. Reglas Oficiales (CR): Citas exactas de los artículos canónicos aplicables (ej. 'CR 702.21a', 'CR 614.1a').\n"
-        "4. Resolución Final y Consecuencias en el juego: Veredicto concluyente sobre qué sucede exactamente.\n\n"
+        "Debes estructurar tu respuesta en una explicación paso a paso breve, verificable y basada en exactamente 4 elementos:\n"
+        "- Elemento 1: Estado relevante de la mesa y habilidades de las cartas.\n"
+        "- Elemento 2: Timing, ventanas de prioridad y orden en la pila o fases de turno.\n"
+        "- Elemento 3: Reglas canónicas oficiales (CR) aplicables con sus citas exactas.\n"
+        "- Elemento 4: Resolución concreta y consecuencias en la partida.\n\n"
+        "REGLA CRÍTICA DE FORMATO PARA 'reasoning_steps':\n"
+        "- Devuelve exactamente 4 elementos en la lista.\n"
+        "- Cada elemento debe contener ÚNICAMENTE el texto explicativo.\n"
+        "- NUNCA incluyas números ni prefijos en los strings (NO incluyas '1.', '1)', 'Paso 1:', 'Paso 1 -', etc.).\n"
+        "- La numeración la añade el sistema automáticamente.\n\n"
         "IMPORTANTE: Si no tienes suficiente información de reglas para emitir un dictamen seguro, indícalo "
         "honestamente en el veredicto en lugar de especular."
     )
@@ -134,7 +142,7 @@ class RulesReasoningAgent:
             f"Consulta del jugador:\n\"{message}\"\n\n"
             f"{cards_context}"
             f"Reglas oficiales canónicas recuperadas:\n{context_text}\n\n"
-            "Analiza paso a paso la interacción aplicando Chain-of-Thought y emite el veredicto con citas CR."
+            "Analiza paso a paso la interacción y emite la explicación en exactamente 4 elementos sin prefijos numéricos, junto al veredicto y citas CR."
         )
 
         messages = [
@@ -148,12 +156,29 @@ class RulesReasoningAgent:
             deployment=self.llm.deployment_reasoning
         )
 
+    @staticmethod
+    def normalize_step_text(step: str) -> str:
+        """
+        Defensively strips leading step numbering and prefixes such as:
+          - "1. ", "2) ", "3 - ", "4: "
+          - "Paso 1: ", "Paso 1 - ", "Paso 1. ", "Paso 1 "
+          - "Step 1: ", "Step 1 - "
+          - Multiple/nested prefixes like "1. 1. " or "Paso 1: 1. "
+        Does NOT alter CR references like "CR 702.48c" or domain phrases like "**Paso de Daño**".
+        """
+        if not step:
+            return ""
+        text = step.strip()
+        pattern = r"^(?:\*{0,2}(?:paso|step)\s*\d+\s*[:\.\-]?\*{0,2}\s*[:\.\-]?\s*|\*{0,2}\d+[\.\)\-:]\*{0,2}\s*)+"
+        return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+
     def _format_response(self, output: RulesReasoningOutput) -> Tuple[str, List[SourceRef]]:
-        # Format markdown response
-        steps_md = "\n".join([f"{i+1}. {step}" for i, step in enumerate(output.reasoning_steps)])
+        # Defensively normalize each step to eliminate any existing numbering/prefixes
+        cleaned_steps = [self.normalize_step_text(step) for step in output.reasoning_steps]
+        steps_md = "\n".join([f"{i+1}. {step}" for i, step in enumerate(cleaned_steps)])
         reply = (
             f"**{output.verdict}**\n\n"
-            f"**Explicación paso a paso de las reglas de juego (CoT):**\n"
+            f"**Explicación paso a paso de las reglas de juego:**\n"
             f"{steps_md}"
         )
 

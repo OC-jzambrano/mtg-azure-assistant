@@ -35,7 +35,7 @@ async function batchText(message) {
   try {
     const response = await fetch('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversation_id: current.id, message: String(message) }),
+      body: JSON.stringify({ conversation_id: current.id, message: String(message), locale: 'es' }),
       signal: AbortSignal.timeout(120000),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -98,15 +98,79 @@ function renderMessageCards(container, message, index) {
   gallery.setAttribute('aria-label', 'Cartas de esta respuesta');
   for (const card of cards) {
     const item = document.createElement('article'); item.className = 'result-card';
-    if (/^https?:\/\//i.test(card.image_url || '')) {
-      const img = document.createElement('img'); img.src = card.image_url;
-      img.alt = card.name || 'Carta'; img.loading = 'lazy';
-      img.addEventListener('error', () => { img.remove(); }, { once: true });
-      item.append(img);
+    if (card.is_custom) {
+      item.classList.add('custom-card');
+
+      if (/^https?:\/\//i.test(card.image_url || '')) {
+        const img = document.createElement('img'); img.src = card.image_url;
+        img.alt = card.name || 'Carta Custom'; img.loading = 'lazy';
+        img.addEventListener('error', () => { img.remove(); }, { once: true });
+        item.append(img);
+      } else {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'custom-card-placeholder';
+        placeholder.setAttribute('aria-hidden', 'true');
+        const badge = document.createElement('span');
+        badge.className = 'custom-card-tag';
+        badge.textContent = '🃏 CARTA PERSONALIZADA';
+        placeholder.append(badge);
+        item.append(placeholder);
+      }
+
+      const header = document.createElement('div');
+      header.className = 'custom-card-header';
+      const title = document.createElement('strong');
+      title.className = 'custom-card-title';
+      title.textContent = card.name || 'Carta Custom';
+      header.append(title);
+      if (card.mana_cost) {
+        const mana = document.createElement('span');
+        mana.className = 'custom-card-mana';
+        mana.textContent = card.mana_cost;
+        header.append(mana);
+      }
+      item.append(header);
+
+      if (card.type_line) {
+        const typeP = document.createElement('p');
+        typeP.className = 'custom-card-type';
+        typeP.textContent = card.type_line;
+        item.append(typeP);
+      }
+
+      if (card.oracle_text) {
+        const oracle = document.createElement('div');
+        oracle.className = 'custom-card-oracle';
+        oracle.textContent = card.oracle_text;
+        item.append(oracle);
+      }
+
+      if (card.flavor_text) {
+        const flavor = document.createElement('p');
+        flavor.className = 'custom-card-flavor';
+        flavor.textContent = `«${card.flavor_text.replace(/^[«"']+|[»"']+$/g, '')}»`;
+        item.append(flavor);
+      }
+
+      if (card.power != null && card.toughness != null) {
+        const pt = document.createElement('div');
+        pt.className = 'custom-card-pt';
+        pt.textContent = `${card.power}/${card.toughness}`;
+        item.append(pt);
+      }
+
+      gallery.append(item);
+    } else {
+      if (/^https?:\/\//i.test(card.image_url || '')) {
+        const img = document.createElement('img'); img.src = card.image_url;
+        img.alt = card.name || 'Carta'; img.loading = 'lazy';
+        img.addEventListener('error', () => { img.remove(); }, { once: true });
+        item.append(img);
+      }
+      const title = document.createElement('strong'); title.textContent = card.name || 'Carta'; item.append(title);
+      const detail = document.createElement('p'); detail.textContent = [card.mana_cost, card.type_line].filter(Boolean).join(' · '); item.append(detail);
+      gallery.append(item);
     }
-    const title = document.createElement('strong'); title.textContent = card.name || 'Carta'; item.append(title);
-    const detail = document.createElement('p'); detail.textContent = [card.mana_cost, card.type_line].filter(Boolean).join(' · '); item.append(detail);
-    gallery.append(item);
   }
   container.append(gallery);
 }
