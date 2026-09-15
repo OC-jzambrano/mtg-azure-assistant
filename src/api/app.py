@@ -1,14 +1,24 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
 from src.orchestrator import MTGOrchestrator
 from src.api.schemas import ChatRequest, ChatResponse
+from src.observability.tracing import tracing
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    tracing.shutdown()
+
 
 app = FastAPI(
     title="MTG Call Center AI Assistant API",
     description="API REST para asistente de soporte de Magic: The Gathering (RAG + MTG API)",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -45,10 +55,16 @@ def chat(req: ChatRequest) -> ChatResponse:
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    result = orchestrator.handle_message(
+    with tracing.chat_trace(
         conversation_id=req.conversation_id,
-        message=req.message
-    )
+        message=req.message,
+    ) as trace:
+        result = orchestrator.handle_message(
+            conversation_id=req.conversation_id,
+            message=req.message
+        )
+        trace_output = tracing.build_root_output(result)
+        trace.update(output=trace_output)
 
     return ChatResponse(
         conversation_id=req.conversation_id,

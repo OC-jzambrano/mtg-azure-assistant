@@ -25,7 +25,20 @@
 | **Entorno Local** | **Docker Compose** | Imagen oficial `pgvector/pgvector:pg16` para base de datos local en puerto 5432. |
 | **Cloud Provider** | **Microsoft Azure** | Azure Container Apps + PostgreSQL Flexible Server con extensión `VECTOR`. |
 | **IaC (Infraestructura)** | **Terraform** | Código modular en `infra/terraform/` validado (`terraform validate`, 0 errores). **Sin Redis ni Bicep**. |
-| **Observabilidad** | **Application Insights / OpenTelemetry** | Trazabilidad distribuida APM, percentiles de latencia (p95), errores y auditoría de tokens. |
+| **Observabilidad AI** | **Langfuse + OpenTelemetry** | Trazas de chat por turno (`chat_turn`), sesiones (`conversation_id`), RAG (`retrieve_rules`), agentes, tools, llamadas LLM (`type=generation`), tokens y fallbacks deterministas. |
+| **Observabilidad Infraestructura** | **Azure Application Insights / OpenTelemetry** | APM de infraestructura en Azure (propuesta): latencias HTTP p95, salud de contenedores, excepciones no controladas y métricas de PostgreSQL. |
+
+```text
+                    OpenTelemetry
+                         │
+           ┌─────────────┴─────────────┐
+           ▼                           ▼
+       Langfuse                 Application Insights
+           │                           │
+ agents / RAG / LLM             HTTP / infra / DB
+ tools / tokens                 containers / errors
+ sessions                       availability / p95
+```
 
 ---
 

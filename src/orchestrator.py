@@ -8,6 +8,8 @@ from src.api.schemas import (
     CardResult,
     CardSearchFilters
 )
+from src.config import settings
+from src.observability.tracing import tracing
 from src.tools.mtg_api import MTGCardSearchTool, CardItem
 from src.services.rules_rag import RulesRAGStore, RuleChunk
 from src.services.memory import ConversationMemory
@@ -137,16 +139,34 @@ class MTGOrchestrator:
         ctx = self.memory.get_or_create_conversation(conversation_id)
         self.memory.add_user_message(conversation_id, message)
 
-        resp_type = self.classify_intent(message, ctx.last_topic)
+        with tracing.observation(
+            name="route_intent",
+            as_type="span",
+            input={"last_topic": ctx.last_topic},
+            metadata={"router_type": "deterministic"}
+        ) as route_obs:
+            resp_type = self.classify_intent(message, ctx.last_topic)
+            route_obs.update(output={"intent": resp_type.value})
 
         if resp_type == ResponseType.RULES:
-            return self._handle_rules(conversation_id, message)
+            res = self._handle_rules(conversation_id, message)
         elif resp_type == ResponseType.CARD_SEARCH:
-            return self._handle_card_search(conversation_id, message)
+            res = self._handle_card_search(conversation_id, message)
         elif resp_type == ResponseType.CUSTOM_CARD:
-            return self._handle_custom_card(conversation_id, message)
+            res = self._handle_custom_card(conversation_id, message)
         else:
-            return self._handle_general(conversation_id, message)
+            res = self._handle_general(conversation_id, message)
+
+        with tracing.observation(
+            name="build_response",
+            as_type="span",
+            output={
+                "type": res.type.value,
+                "cards_count": len(res.cards),
+                "sources_count": len(res.sources)
+            }
+        ):
+            return res
 
     def _extract_card_names(self, message: str) -> List[str]:
         """
@@ -229,12 +249,29 @@ class MTGOrchestrator:
 
     def _handle_rules(self, conversation_id: str, message: str) -> AssistantResult:
         # 1. Multi-source entity extraction: Identify cards mentioned in natural language
-        card_candidates = self._extract_card_names(message)
+        with tracing.observation(
+            name="extract_card_entities",
+            as_type="span",
+            output=None
+        ) as extract_span:
+            card_candidates = self._extract_card_names(message)
+            extract_span.update(output={"candidates": card_candidates})
+
         resolved_cards: List[CardItem] = []
         missing_cards: List[str] = []
 
         if card_candidates:
-            resolved_cards, missing_cards = self.api_tool.resolve_cards(card_candidates)
+            with tracing.observation(
+                name="resolve_cards",
+                as_type="tool",
+                input={"candidates": card_candidates},
+                output=None
+            ) as tool_obs:
+                resolved_cards, missing_cards = self.api_tool.resolve_cards(card_candidates)
+                tool_obs.update(output={
+                    "resolved": [c.name for c in resolved_cards],
+                    "missing": missing_cards
+                })
 
         # 2. Honest validation: If user mentions a card name that doesn't exist, do NOT hallucinate
         if missing_cards:
@@ -276,7 +313,24 @@ class MTGOrchestrator:
             card_texts_str = " ".join([c.oracle_text or "" for c in cards_typed])
             rag_query = f"{message} {card_names_str} {card_texts_str}"
 
-        rule_chunks = self.rag.retrieve_rules(rag_query, top_k=3)
+        rag_input = {"top_k": 3}
+        if settings.langfuse_capture_content:
+            rag_input["query"] = rag_query
+
+        with tracing.observation(
+            name="retrieve_rules",
+            as_type="retriever",
+            input=rag_input,
+            metadata={"retrieval_backend": "lexical_fallback"}
+        ) as ret_obs:
+            rule_chunks = self.rag.retrieve_rules(rag_query, top_k=3)
+            ret_obs.update(output={
+                "count": len(rule_chunks),
+                "rules": [
+                    {"rule_number": c.rule_number, "score": c.score}
+                    for c in rule_chunks
+                ]
+            })
 
         # 4. Delegate to RulesReasoningAgent with both sources (Canonical Rules + Oracle Cards)
         reply, sources = self.rules_agent.run(
@@ -303,17 +357,43 @@ class MTGOrchestrator:
 
     def _handle_card_search(self, conversation_id: str, message: str) -> AssistantResult:
         existing_filters = self.memory.get_last_card_filter(conversation_id)
-        active_raw = self._extract_search_filters(message, existing_filters)
 
-        # Query tool with canonical filters
-        cards_raw = self.api_tool.search_cards(
-            color=active_raw.get("color"),
-            subtype=active_raw.get("subtype"),
-            card_type=active_raw.get("card_type"),
-            cmc=active_raw.get("cmc"),
-            max_cmc=active_raw.get("max_cmc"),
-            limit=4
-        )
+        with tracing.observation(
+            name="extract_card_filters",
+            as_type="span",
+            output=None
+        ) as filter_span:
+            active_raw = self._extract_search_filters(message, existing_filters)
+            filter_span.update(output={"filters": active_raw})
+
+        search_metadata = {
+            "color": active_raw.get("color"),
+            "subtype": active_raw.get("subtype"),
+            "cmc": active_raw.get("cmc"),
+            "max_cmc": active_raw.get("max_cmc")
+        }
+
+        with tracing.observation(
+            name="mtg_card_search",
+            as_type="tool",
+            metadata=search_metadata
+        ) as search_obs:
+            try:
+                cards_raw = self.api_tool.search_cards(
+                    color=active_raw.get("color"),
+                    subtype=active_raw.get("subtype"),
+                    card_type=active_raw.get("card_type"),
+                    cmc=active_raw.get("cmc"),
+                    max_cmc=active_raw.get("max_cmc"),
+                    limit=4
+                )
+                search_obs.update(output={
+                    "results_count": len(cards_raw),
+                    "card_names": [c.name for c in cards_raw]
+                })
+            except Exception as exc:
+                search_obs.update(level="ERROR", status_message=type(exc).__name__)
+                cards_raw = []
 
         cards: List[CardResult] = [
             CardResult(

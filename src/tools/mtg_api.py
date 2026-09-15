@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Any, Tuple
 import httpx
 from pydantic import BaseModel
 from src.config import settings
+from src.observability.tracing import tracing
 
 class CardItem(BaseModel):
     name: str
@@ -272,6 +273,19 @@ class MTGCardSearchTool:
         Uses in-memory cache and canonical seed dictionary first, then queries the official API.
         Returns None if card does not exist.
         """
+        with tracing.observation(
+            name="mtg_api_get_card",
+            as_type="tool",
+            input={"name": name}
+        ) as tool_obs:
+            card = self._get_card_impl(name)
+            tool_obs.update(output={
+                "found": card is not None,
+                "card_name": card.name if card else None
+            })
+            return card
+
+    def _get_card_impl(self, name: str) -> Optional[CardItem]:
         clean_name = name.strip().lower()
         if not clean_name:
             return None

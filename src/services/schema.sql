@@ -3,19 +3,23 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Rules Knowledge Base (Hybrid Search: Vector + Full Text Search)
+-- 1. Rules Knowledge Base (Hybrid Search: Vector with pgvector HNSW + Full Text Search)
 CREATE TABLE IF NOT EXISTS mtg_rules (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    rule_id VARCHAR(100) UNIQUE NOT NULL,
     rule_number VARCHAR(50) NOT NULL,
     category VARCHAR(100) NOT NULL,
     title VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
     metadata JSONB DEFAULT '{}'::jsonb,
-    embedding vector(1536), -- 1536 for OpenAI text-embedding-3-small or ada-002, 3072 for text-embedding-3-large
+    embedding vector(1536), -- 1536 for OpenAI text-embedding-3-small
+    embedding_model VARCHAR(100),
+    content_hash VARCHAR(64),
     tsv_content tsvector GENERATED ALWAYS AS (
         to_tsvector('spanish', coalesce(title, '') || ' ' || coalesce(content, ''))
     ) STORED,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Indexes for ultra-fast Hybrid Search
@@ -28,6 +32,9 @@ ON mtg_rules USING gin (tsv_content);
 
 CREATE INDEX IF NOT EXISTS idx_mtg_rules_number 
 ON mtg_rules (rule_number);
+
+CREATE INDEX IF NOT EXISTS idx_mtg_rules_rule_id 
+ON mtg_rules (rule_id);
 
 -- 2. Call Center Chat Sessions & Multi-turn Memory
 CREATE TABLE IF NOT EXISTS chat_sessions (

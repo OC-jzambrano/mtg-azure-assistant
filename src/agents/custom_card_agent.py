@@ -3,8 +3,10 @@ import logging
 from typing import Tuple, Optional
 from pydantic import BaseModel, Field
 
+from src.config import settings
 from src.api.schemas import CardResult
 from src.services.llm import LLMService
+from src.observability.tracing import tracing
 
 logger = logging.getLogger("mtg_assistant.custom_card_agent")
 
@@ -53,14 +55,60 @@ class CustomCardAgent:
         Returns:
             Tuple[str, CardResult]: Markdown presentation and typed CardResult (with image_url=None).
         """
-        # 1. Attempt LLM with Structured Outputs if available
-        if self.llm.is_available():
-            structured_res = self._run_llm(message)
-            if structured_res:
-                return self._format_response(structured_res)
+        with tracing.observation(
+            name="custom_card_agent",
+            as_type="agent",
+            metadata={"llm_available": self.llm.is_available()}
+        ) as agent_obs:
+            fallback_reason = None
 
-        # 2. Deterministic Local Fallback
-        return self._run_deterministic_fallback(message)
+            # 1. Attempt LLM with Structured Outputs if available
+            if self.llm.is_available():
+                structured_res = self._run_llm(message)
+                if structured_res:
+                    reply, card_result = self._format_response(structured_res)
+                    safe_out = {
+                        "card_name": card_result.name,
+                        "mana_cost": card_result.mana_cost,
+                        "cmc": card_result.cmc,
+                        "fallback_used": False
+                    }
+                    if settings.langfuse_capture_content:
+                        safe_out["oracle_text"] = card_result.oracle_text
+                    agent_obs.update(
+                        output=safe_out,
+                        metadata={"fallback_used": False, "llm_available": True}
+                    )
+                    return reply, card_result
+                else:
+                    fallback_reason = "structured_output_error"
+            else:
+                fallback_reason = "no_credentials"
+
+            # 2. Deterministic Local Fallback
+            with tracing.observation(
+                name="deterministic_fallback",
+                as_type="span",
+                metadata={
+                    "reason": fallback_reason,
+                    "agent": "custom_card"
+                }
+            ):
+                reply, card_result = self._run_deterministic_fallback(message)
+
+            safe_out = {
+                "card_name": card_result.name,
+                "mana_cost": card_result.mana_cost,
+                "cmc": card_result.cmc,
+                "fallback_used": True
+            }
+            if settings.langfuse_capture_content:
+                safe_out["oracle_text"] = card_result.oracle_text
+            agent_obs.update(
+                output=safe_out,
+                metadata={"fallback_used": True, "llm_available": self.llm.is_available()}
+            )
+            return reply, card_result
 
     def _run_llm(self, message: str) -> Optional[CustomCardOutput]:
         messages = [

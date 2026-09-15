@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from src.api.schemas import SourceRef, CardResult
 from src.services.rules_rag import RuleChunk
 from src.services.llm import LLMService
+from src.observability.tracing import tracing
 
 logger = logging.getLogger("mtg_assistant.rules_agent")
 
@@ -66,15 +67,48 @@ class RulesReasoningAgent:
         """
         chunks = rule_chunks or []
         card_list = cards or []
-        
-        # 1. Attempt LLM with Structured Outputs if client is configured
-        if self.llm.is_available():
-            structured_res = self._run_llm(message, chunks, card_list)
-            if structured_res:
-                return self._format_response(structured_res)
 
-        # 2. Deterministic Local Fallback (DoD: 100% reliable, zero external dependencies)
-        return self._run_deterministic_fallback(message, chunks, card_list)
+        with tracing.observation(
+            name="rules_reasoning_agent",
+            as_type="agent",
+            metadata={
+                "rules_count": len(chunks),
+                "cards_count": len(card_list)
+            }
+        ) as agent_obs:
+            fallback_reason = None
+
+            # 1. Attempt LLM with Structured Outputs if client is configured
+            if self.llm.is_available():
+                structured_res = self._run_llm(message, chunks, card_list)
+                if structured_res:
+                    reply, sources = self._format_response(structured_res)
+                    agent_obs.update(output={
+                        "citations": [s.reference for s in sources],
+                        "fallback_used": False
+                    })
+                    return reply, sources
+                else:
+                    fallback_reason = "structured_output_error"
+            else:
+                fallback_reason = "no_credentials"
+
+            # 2. Deterministic Local Fallback (DoD: 100% reliable, zero external dependencies)
+            with tracing.observation(
+                name="deterministic_fallback",
+                as_type="span",
+                metadata={
+                    "reason": fallback_reason,
+                    "agent": "rules_reasoning"
+                }
+            ):
+                reply, sources = self._run_deterministic_fallback(message, chunks, card_list)
+
+            agent_obs.update(output={
+                "citations": [s.reference for s in sources],
+                "fallback_used": True
+            })
+            return reply, sources
 
     def _run_llm(
         self,

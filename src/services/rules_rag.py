@@ -1,64 +1,84 @@
-import json
+import logging
 import re
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
-from src.config import settings
+from typing import List, Optional, Any
 
-class RuleChunk(BaseModel):
-    rule_id: str
-    rule_number: str
-    category: str
-    title: str
-    content: str
-    citation: str
-    score: float = 1.0
+from src.config import settings
+from src.services.rules_loader import RuleChunk, load_rule_chunks
+from src.services.embeddings import EmbeddingService, embedding_service as default_embedding_service
+from src.repositories.rules_repository import RulesRepository
+
+logger = logging.getLogger("mtg_assistant.rules_rag")
+
+# Re-export RuleChunk for backwards compatibility
+__all__ = ["RuleChunk", "RulesRAGStore"]
+
 
 class RulesRAGStore:
     """
     RAG store for MTG Official Comprehensive Rules.
-    Supports PostgreSQL + pgvector when configured, with a resilient in-memory fallback.
+    Primary Path: Vector similarity search via PostgreSQL + pgvector (HNSW cosine ops).
+    Fallback Path: Resilient canonical in-memory lexical retrieval engine.
     """
-    def __init__(self, data_path: Optional[str] = None):
-        self.data_path = data_path or settings.rules_data_path
-        self.chunks: List[RuleChunk] = []
-        self._load_rules()
 
-    def _load_rules(self):
-        try:
-            with open(self.data_path, "r", encoding="utf-8") as f:
-                raw_data = json.load(f)
-            
-            for item in raw_data.get("rules", []):
-                # Add main rule
-                self.chunks.append(RuleChunk(
-                    rule_id=item.get("id", ""),
-                    rule_number=item.get("rule_number", ""),
-                    category=item.get("category", ""),
-                    title=item.get("title", ""),
-                    content=item.get("content", ""),
-                    citation=f"Magic Comprehensive Rules (CR {item.get('rule_number')}) - {item.get('title')}"
-                ))
-                # Add subrules
-                for sub in item.get("subrules", []):
-                    extra = sub.get("interaction_example", "")
-                    content_text = sub.get("content", "")
-                    if extra:
-                        content_text += f"\n[Caso de interacción]: {extra}"
-                    self.chunks.append(RuleChunk(
-                        rule_id=f"{item.get('id')}_{sub.get('number')}",
-                        rule_number=sub.get("number", ""),
-                        category=item.get("category", ""),
-                        title=sub.get("title", ""),
-                        content=content_text,
-                        citation=f"Magic Comprehensive Rules (CR {sub.get('number')}) - {sub.get('title')}"
-                    ))
-        except Exception as e:
-            print(f"Warning: Could not load rules from {self.data_path}: {e}")
+    def __init__(
+        self,
+        data_path: Optional[str] = None,
+        repository: Optional[RulesRepository] = None,
+        embedding_service: Optional[EmbeddingService] = None,
+        backend: Optional[str] = None,
+    ):
+        self.data_path = data_path or settings.rules_data_path
+        self.repository = repository or RulesRepository()
+        self.embedding_service = embedding_service or default_embedding_service
+        self.backend = backend or settings.rag_backend
+        self.last_backend_used: str = "lexical_fallback"
+
+        # Load canonical chunks for lexical fallback and offline readiness
+        self.chunks: List[RuleChunk] = load_rule_chunks(self.data_path)
+
+    def vector_backend_available(self) -> bool:
+        """
+        Determines whether the pgvector backend and embedding service are healthy.
+        Honors RAG_BACKEND configuration ('auto', 'pgvector', 'lexical').
+        """
+        if self.backend == "lexical":
+            return False
+
+        if not self.embedding_service.is_available():
+            return False
+
+        if not self.repository.is_available():
+            return False
+
+        return True
 
     def retrieve_rules(self, query: str, top_k: int = 3) -> List[RuleChunk]:
         """
         Retrieves the most relevant rules for a given question.
-        Calculates lexical relevance score based on MTG terms, numbers, and concepts.
+        Attempts pgvector cosine search first. Gracefully degrades to lexical fallback
+        if credentials, network, or database are unavailable.
+        """
+        if self.vector_backend_available():
+            try:
+                query_vector = self.embedding_service.embed_query(query)
+                vector_results = self.repository.vector_search(query_vector, top_k=top_k)
+                if vector_results:
+                    self.last_backend_used = "pgvector"
+                    logger.debug("Retrieved %d rules using pgvector search.", len(vector_results))
+                    return vector_results
+            except Exception as exc:
+                logger.warning(
+                    "pgvector retrieval failed; activating lexical fallback. Error: %s",
+                    exc,
+                )
+
+        self.last_backend_used = "lexical_fallback"
+        return self._retrieve_lexical(query, top_k=top_k)
+
+    def _retrieve_lexical(self, query: str, top_k: int = 3) -> List[RuleChunk]:
+        """
+        Lexical relevance scoring based on MTG domain terms, numbers, and concepts.
+        Guarantees 100% offline functionality and zero unhandled errors.
         """
         if not self.chunks:
             return []
@@ -70,17 +90,39 @@ class RulesRAGStore:
 
         # Key domain keywords weight
         weights = {
-            "mana": 3.0, "maná": 3.0, "reserva": 2.5, "pool": 2.5,
-            "fases": 3.0, "fase": 3.0, "turno": 2.5, "pasos": 2.0,
-            "combate": 2.5, "dañar primero": 4.0, "daño primero": 4.0, "first strike": 4.0,
-            "ninjutsu": 4.0, "ninja": 3.0, "bloqueada": 2.5, "daño": 2.0, "robar": 2.5,
-            "ward": 4.0, "guardia": 4.0, "reemplazo": 4.0, "replacement": 4.0,
-            "instead": 3.0, "en vez de": 3.0, "contrarresta": 3.0, "counter": 3.0,
-            "objetivo": 2.5, "target": 2.5
+            "mana": 3.0,
+            "maná": 3.0,
+            "reserva": 2.5,
+            "pool": 2.5,
+            "fases": 3.0,
+            "fase": 3.0,
+            "turno": 2.5,
+            "pasos": 2.0,
+            "combate": 2.5,
+            "dañar primero": 4.0,
+            "daño primero": 4.0,
+            "first strike": 4.0,
+            "ninjutsu": 4.0,
+            "ninja": 3.0,
+            "bloqueada": 2.5,
+            "daño": 2.0,
+            "robar": 2.5,
+            "ward": 4.0,
+            "guardia": 4.0,
+            "reemplazo": 4.0,
+            "replacement": 4.0,
+            "instead": 3.0,
+            "en vez de": 3.0,
+            "contrarresta": 3.0,
+            "counter": 3.0,
+            "objetivo": 2.5,
+            "target": 2.5,
         }
 
         for chunk in self.chunks:
-            haystack = f"{chunk.title} {chunk.content} {chunk.category} {chunk.rule_number}".lower()
+            haystack = (
+                f"{chunk.title} {chunk.content} {chunk.category} {chunk.rule_number}".lower()
+            )
             score = 0.0
 
             # Match exact rule number (e.g. 106, 500, 702.48)

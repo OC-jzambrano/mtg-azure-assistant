@@ -4,6 +4,7 @@ from typing import Optional, Type, TypeVar, List, Dict, Any
 from pydantic import BaseModel
 
 from src.config import settings
+from src.observability.tracing import tracing, sanitize_llm_output
 
 logger = logging.getLogger("mtg_assistant.llm")
 
@@ -88,23 +89,56 @@ class LLMService:
             return None
 
         model_name = deployment or self.deployment_reasoning
+        provider_name = "azure_openai" if self.endpoint else "openai"
+        gen_input = messages if settings.langfuse_capture_content else {"messages_count": len(messages)}
 
-        try:
-            completion = client.beta.chat.completions.parse(
-                model=model_name,
-                messages=messages,
-                response_format=response_model,
-                timeout=timeout
-            )
-            parsed = completion.choices[0].message.parsed
-            return parsed
-        except Exception as exc:
-            logger.warning(
-                "Azure OpenAI structured completion call failed. Activating deterministic fallback. Details: %s",
-                str(exc),
-                extra={"deployment": model_name, "error_type": type(exc).__name__}
-            )
-            return None
+        with tracing.observation(
+            name="azure_openai_structured",
+            as_type="generation",
+            model=model_name,
+            metadata={
+                "provider": provider_name,
+                "deployment": model_name,
+                "response_model": response_model.__name__
+            },
+            input=gen_input
+        ) as gen_obs:
+            try:
+                completion = client.beta.chat.completions.parse(
+                    model=model_name,
+                    messages=messages,
+                    response_format=response_model,
+                    timeout=timeout
+                )
+                parsed = completion.choices[0].message.parsed
+
+                # Token usage extraction
+                usage = getattr(completion, "usage", None)
+                usage_details = None
+                if usage:
+                    usage_details = {
+                        "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                        "completion_tokens": getattr(usage, "completion_tokens", 0),
+                        "total_tokens": getattr(usage, "total_tokens", 0)
+                    }
+
+                sanitized = sanitize_llm_output(parsed)
+                gen_obs.update(
+                    output=sanitized,
+                    usage_details=usage_details
+                )
+                return parsed
+            except Exception as exc:
+                gen_obs.update(
+                    level="ERROR",
+                    status_message=type(exc).__name__
+                )
+                logger.warning(
+                    "Azure OpenAI structured completion call failed. Activating deterministic fallback. Details: %s",
+                    str(exc),
+                    extra={"deployment": model_name, "error_type": type(exc).__name__}
+                )
+                return None
 
     def generate_text(
         self,
@@ -123,17 +157,50 @@ class LLMService:
             return None
 
         model_name = deployment or self.deployment
-        try:
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                timeout=timeout
-            )
-            return response.choices[0].message.content
-        except Exception as exc:
-            logger.warning(
-                "Azure OpenAI text completion call failed. Activating deterministic fallback. Details: %s",
-                str(exc),
-                extra={"deployment": model_name, "error_type": type(exc).__name__}
-            )
-            return None
+        provider_name = "azure_openai" if self.endpoint else "openai"
+        gen_input = messages if settings.langfuse_capture_content else {"messages_count": len(messages)}
+
+        with tracing.observation(
+            name="azure_openai_text",
+            as_type="generation",
+            model=model_name,
+            metadata={
+                "provider": provider_name,
+                "deployment": model_name
+            },
+            input=gen_input
+        ) as gen_obs:
+            try:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    timeout=timeout
+                )
+                content = response.choices[0].message.content
+
+                usage = getattr(response, "usage", None)
+                usage_details = None
+                if usage:
+                    usage_details = {
+                        "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                        "completion_tokens": getattr(usage, "completion_tokens", 0),
+                        "total_tokens": getattr(usage, "total_tokens", 0)
+                    }
+
+                out_content = content if settings.langfuse_capture_content else {"content_length": len(content or "")}
+                gen_obs.update(
+                    output=out_content,
+                    usage_details=usage_details
+                )
+                return content
+            except Exception as exc:
+                gen_obs.update(
+                    level="ERROR",
+                    status_message=type(exc).__name__
+                )
+                logger.warning(
+                    "Azure OpenAI text completion call failed. Activating deterministic fallback. Details: %s",
+                    str(exc),
+                    extra={"deployment": model_name, "error_type": type(exc).__name__}
+                )
+                return None
