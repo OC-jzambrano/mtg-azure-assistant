@@ -1,20 +1,76 @@
 /* Standalone adapter for the original Odoo Tutor NLUX bundle. */
 const $ = (selector) => document.querySelector(selector);
 const storageKey = 'mtg-tutor-conversations-v1';
+
+function hasUserMessage(session) {
+  return Boolean(
+    session &&
+    Array.isArray(session.messages) &&
+    session.messages.some(
+      m =>
+        m &&
+        m.role === 'user' &&
+        String(m.message || '').trim().length > 0
+    )
+  );
+}
+
+function dedupeSessions(items) {
+  const seen = new Set();
+  return items.filter(session => {
+    if (!session?.id || seen.has(session.id)) {
+      return false;
+    }
+    seen.add(session.id);
+    return true;
+  });
+}
+
 let sessions = [];
 try { sessions = JSON.parse(localStorage.getItem(storageKey) || '[]'); } catch {}
 if (!Array.isArray(sessions)) sessions = [];
-sessions = sessions.filter(s => s && typeof s.id === 'string' && Array.isArray(s.messages));
-let current = sessions[0] || fresh();
+sessions = dedupeSessions(
+  sessions.filter(
+    s =>
+      s &&
+      typeof s.id === 'string' &&
+      Array.isArray(s.messages) &&
+      hasUserMessage(s)
+  )
+).slice(0, 30);
+
+try {
+  localStorage.setItem(storageKey, JSON.stringify(sessions));
+} catch {}
+
+let current = fresh();
 let chat;
 let busy = false;
 let dark = localStorage.getItem('mtg-tutor-theme') === 'dark';
 
 function fresh() { return { id: crypto.randomUUID(), messages: [], results: [], votes: {} }; }
+
 function persist() {
-  sessions = [current, ...sessions.filter(s => s.id !== current.id)].slice(0, 30);
-  try { localStorage.setItem(storageKey, JSON.stringify(sessions)); }
-  catch { $('#error').hidden = false; $('#error').textContent = 'No se pudo guardar el historial en este navegador.'; }
+  const previousSessions = dedupeSessions(
+    sessions.filter(
+      s =>
+        s &&
+        s.id !== current.id &&
+        hasUserMessage(s)
+    )
+  );
+
+  sessions = hasUserMessage(current)
+    ? dedupeSessions([current, ...previousSessions]).slice(0, 30)
+    : previousSessions.slice(0, 30);
+
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(sessions));
+  } catch {
+    $('#error').hidden = false;
+    $('#error').textContent = 'No se pudo guardar el historial en este navegador.';
+  }
+
   renderHistory();
 }
 function safeText(text) {
@@ -174,22 +230,65 @@ function renderMessageCards(container, message, index) {
   }
   container.append(gallery);
 }
+function startNewConversation() {
+  if (busy) return;
+
+  // Si ya estamos en un chat nuevo y vacío, no crear otro UUID ni sesión
+  if (!hasUserMessage(current)) {
+    $('#offcanvasAiSidebar').classList.remove('history-open');
+    renderHistory();
+    return;
+  }
+
+  // La actual sí tiene contenido: guardarla
+  persist();
+
+  // Crear una nueva conversación SOLO una vez
+  current = fresh();
+
+  // persist() actualiza/prunea las sesiones sin almacenar current porque está vacío
+  persist();
+
+  $('#offcanvasAiSidebar').classList.remove('history-open');
+  mount();
+}
+
 function renderHistory() {
   const list = $('#sessions'); list.replaceChildren();
   const query = $('#chat-search').value.toLocaleLowerCase();
-  for (const session of [current, ...sessions.filter(s => s.id !== current.id)]) {
+  const historySessions = [
+    current,
+    ...sessions.filter(
+      s =>
+        s &&
+        s.id !== current.id &&
+        hasUserMessage(s)
+    )
+  ];
+  for (const session of historySessions) {
     if (query && !session.messages.some(m => String(m.message).toLocaleLowerCase().includes(query))) continue;
     const button = document.createElement('button'); button.textContent = session.messages.find(m => m.role === 'user')?.message || 'Nueva conversación';
     button.disabled = busy;
     button.classList.toggle('active', session.id === current.id);
     button.setAttribute('aria-current', String(session.id === current.id));
     button.title = button.textContent;
-    button.onclick = () => { if (busy) return; current = session; persist(); $('#offcanvasAiSidebar').classList.remove('history-open'); mount(); };
+    button.onclick = () => {
+      if (busy) return;
+      if (current.id === session.id) {
+        $('#offcanvasAiSidebar').classList.remove('history-open');
+        return;
+      }
+      persist();
+      current = session;
+      persist();
+      $('#offcanvasAiSidebar').classList.remove('history-open');
+      mount();
+    };
     list.append(button);
   }
 }
-$('#reset').onclick = () => { persist(); current = fresh(); persist(); mount(); };
-$('#new-chat').onclick = $('#reset').onclick;
+$('#reset').onclick = startNewConversation;
+$('#new-chat').onclick = startNewConversation;
 $('#chat-search').oninput = renderHistory;
 $('#theme').onclick = () => { dark = !dark; localStorage.setItem('mtg-tutor-theme', dark ? 'dark' : 'light'); mount(); };
 $('#history-toggle').onclick = () => { $('#offcanvasAiSidebar').classList.toggle('history-open'); };
@@ -222,3 +321,8 @@ function decorateMessages() {
 new MutationObserver(decorateMessages).observe($('#chat-ui-container'), { childList: true, subtree: true });
 mount();
 fetch('/health').then(r => { $('#status').textContent = r.ok ? 'Conectado · Listo para tu consulta' : 'Servicio no disponible'; }).catch(() => { $('#status').textContent = 'Sin conexión'; });
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { hasUserMessage, dedupeSessions, fresh };
+}
+
