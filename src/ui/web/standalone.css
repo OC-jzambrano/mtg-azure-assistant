@@ -58,3 +58,89 @@ button:focus-visible { outline: 2px solid #386b60; outline-offset: 3px; }
 .message-cards .result-card p { margin: 6px 0 0; font-size: 13px; color: var(--tutor-text-muted); }
 #offcanvasAiSidebar.is-dark-theme #sessions button.active,
 #offcanvasAiSidebar.is-dark-theme .message-tools button[aria-pressed="true"] { background: #386b60; color: white; }
+
+/* Custom Card Frame Styling */
+.message-cards .result-card.custom-card {
+  flex: 0 1 300px;
+  background: var(--tutor-surface);
+  border: 1px solid var(--tutor-border-strong);
+  border-radius: var(--tutor-radius-md);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--tutor-shadow-sm);
+  position: relative;
+}
+.custom-card-placeholder {
+  width: 100%;
+  height: 80px;
+  background: linear-gradient(135deg, var(--tutor-accent-soft) 0%, var(--tutor-surface-soft) 100%);
+  border: 1px dashed var(--tutor-border);
+  border-radius: var(--tutor-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.custom-card-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--tutor-accent-strong);
+}
+.custom-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.custom-card-title {
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--tutor-text);
+}
+.custom-card-mana {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tutor-accent-strong);
+  white-space: nowrap;
+}
+.custom-card-type {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tutor-text-muted);
+  margin: 0 !important;
+  border-bottom: 1px solid var(--tutor-border);
+  padding-bottom: 6px;
+}
+.custom-card-oracle {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--tutor-text);
+  white-space: pre-line;
+}
+.custom-card-flavor {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--tutor-text-muted);
+  margin: 0 !important;
+}
+.custom-card-pt {
+  align-self: flex-end;
+  background: var(--tutor-surface-soft);
+  border: 1px solid var(--tutor-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tutor-text);
+}
+#offcanvasAiSidebar.is-dark-theme .result-card.custom-card {
+  background: var(--tutor-surface-soft);
+  border-color: var(--tutor-border);
+}
+#offcanvasAiSidebar.is-dark-theme .custom-card-placeholder {
+  background: linear-gradient(135deg, rgba(56, 107, 96, 0.2) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border-color: var(--tutor-border-strong);
+}

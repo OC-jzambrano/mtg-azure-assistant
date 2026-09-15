@@ -45,8 +45,10 @@ La solución se encuentra completamente desplegada y operativa en la nube de **M
    - Si tras el Flujo 2 el usuario pregunta *"¿Y alguna que cueste solo uno?"*, el sistema mantiene `color="W"` y `subtype="Warrior"` y actualiza `cmc=1`.
 
 4. **Flujo 4 — Custom Card [Bonus]**:
-   - Diseña cartas equilibradas según la filosofía oficial del *Color Pie* de Wizards of the Coast (ej. *Han Solo, Capitán del Halcón 3/2, Boros {1}{R}{W} con Dañar primero*).
-   - Proporciona una respuesta estructurada con `image_url: null` honesto sin generar URLs inventadas.
+   - Genera diseño estructurado y balanceado según la filosofía oficial del *Color Pie* de Wizards of the Coast (ej. *Han Solo, Capitán del Halcón 3/2, Boros {1}{R}{W} con Dañar primero*).
+   - Localización estricta consistente con la aplicación (español por defecto con terminología canónica oficial de Magic: *Dañar primero, Prisa, Volar*, etc.).
+   - La metadata visual `art_prompt` se preserva internamente para una futura etapa de generación artística y nunca se expone al usuario ni en la interfaz.
+   - No genera todavía arte visual o renders gráficos (product gap conocido en desarrollo); `image_url: null` es un diseño intencionado y honesto para no fabricar URLs ni alucinar assets inexistentes.
 
 ---
 
