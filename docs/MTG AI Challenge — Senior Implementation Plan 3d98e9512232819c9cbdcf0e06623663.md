@@ -13,7 +13,7 @@ Construir una demo funcional y defendible con enfoque **senior**: primero una ve
 
 | Capa | Decisión |
 | --- | --- |
-| Frontend demo | Streamlit |
+| Frontend demo | Chat web NLUX |
 | API | FastAPI |
 | Orquestación | 1 router |
 | LLM | Azure OpenAI |
@@ -142,7 +142,7 @@ Debe devolver un objeto correcto.
 
 ### Todavía no
 
-- Streamlit
+- Chat web NLUX
 - Azure Container Apps
 - Terraform deploy
 - UI bonita
@@ -349,49 +349,13 @@ Y `POST /api/chat` debe funcionar correctamente.
 
 ---
 
-# 8. Streamlit después del backend
+# 8. Chat web después del backend
 
-La UI no contiene inteligencia; solo consume la API y renderiza.
+La UI en src/ui/web/ no contiene inteligencia; consume POST /api/chat mediante fetch y renderiza con NLUX. FastAPI sirve el chat en /chat/.
 
-```
-Streamlit
-    │
-    │ requests.post()
-    ▼
-FastAPI
-```
+El request contiene conversation_id y message. Cada respuesta muestra su texto y sus cartas dentro del mismo chat, con imágenes cuando existe image_url. Las referencias quedan en el desplegable Fuentes.
 
-## Request desde Streamlit
-
-```python
-response = requests.post(
-    API_URL + "/api/chat",
-    json={
-        "conversation_id": session_id,
-        "message": prompt
-    }
-)
-```
-
-## Render Card Search
-
-```python
-if response["type"] == "card_search":
-    for card in response["cards"]:
-        st.image(card["image_url"])
-```
-
-## Render Rules RAG
-
-```python
-if response["type"] == "rules":
-    st.markdown(response["message"])
-
-    for source in response["sources"]:
-        st.caption(source["reference"])
-```
-
-La separación permite sustituir Streamlit por React en el futuro sin tocar la aplicación.
+La separación permite cambiar la interfaz sin modificar el contrato HTTP.
 
 ---
 
@@ -663,7 +627,7 @@ Terraform
         ↓
 8. FastAPI
         ↓
-9. Streamlit
+9. Chat web NLUX
         ↓
 10. Docker
         ↓

@@ -1,11 +1,10 @@
 -- Schema for MTG Assistant with PostgreSQL & pgvector
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. Rules Knowledge Base (Hybrid Search: Vector with pgvector HNSW + Full Text Search)
 CREATE TABLE IF NOT EXISTS mtg_rules (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     rule_id VARCHAR(100) UNIQUE NOT NULL,
     rule_number VARCHAR(50) NOT NULL,
     category VARCHAR(100) NOT NULL,

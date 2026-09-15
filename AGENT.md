@@ -15,7 +15,7 @@
 
 | Componente | Tecnología Seleccionada | Justificación y Fronteras |
 | :--- | :--- | :--- |
-| **Frontend Demo** | **Streamlit** | `src/ui/app_streamlit.py` consumiendo FastAPI exclusivamente vía HTTP/JSON (`api_client.py`). |
+| **Frontend Demo** | **Chat web NLUX** | `src/ui/web/` servido por FastAPI en `/chat/`, consumiendo la API vía HTTP/JSON. |
 | **Backend API** | **FastAPI** | `src/api/app.py` como capa HTTP fina. Tipado estricto con Pydantic (`schemas.py`), endpoints `/health` y `/api/chat`. |
 | **Orquestación & Agentes** | **Router Determinista + Agentes Especializados** | Router central + **Rules Reasoning Agent** (resolución de combate) + **Custom Designer Agent** (diseño Color Pie). |
 | **LLM** | **Azure OpenAI** | `gpt-4o` (razonamiento complejo de reglas y diseño custom) y `gpt-4o-mini` (extracción/clasificación). Fallback determinista local. |
@@ -76,7 +76,7 @@
 
 ## 4. Definición de Terminado (Definition of Done — DoD)
 
-1. **Contrato Único**: Streamlit consume FastAPI exclusivamente vía HTTP (`POST /api/chat`) con `conversation_id` UUID.
+1. **Contrato Único**: El chat web consume FastAPI exclusivamente vía HTTP (`POST /api/chat`) con `conversation_id` UUID.
 2. **Esquemas Tipados**: Modelos Pydantic en `src/api/schemas.py` (`ChatRequest`, `ChatResponse`, `SourceRef`, `CardResult`, `CardSearchFilters`).
 3. **Cero Contradicciones**: Terraform, código, tests y documentación alineados (sin Redis, con PostgreSQL unificado).
 4. **Tests 100% Deterministas**: Suite de tests unitarios pasa sin requerir Internet en <1 segundo.

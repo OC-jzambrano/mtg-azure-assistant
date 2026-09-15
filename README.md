@@ -12,7 +12,7 @@ Para total transparencia técnica, distinguimos lo **ejecutable hoy** de la **ev
 
 | Componente | Demo Local Implementada (Milestone 1) | Arquitectura Productiva Propuesta (Azure) |
 | :--- | :--- | :--- |
-| **Frontend** | Streamlit (`src/ui/app_streamlit.py`) consumiendo HTTP | Streamlit / Consola Omnicanal Call Center |
+| **Frontend** | Chat web NLUX (`src/ui/web`) consumiendo HTTP | Chat web / Consola Omnicanal Call Center |
 | **API** | FastAPI (`/api/chat`, `/health`) con esquemas Pydantic tipados | Azure Container Apps (serverless escalable) |
 | **Orquestador** | 1 Router clasificando los 4 flujos en `AssistantResult` | Router en contenedor con observabilidad OpenTelemetry |
 | **RAG / Reglas** | **PostgreSQL 16 + `pgvector` HNSW** (1536d) + Fallback Léxico resiliente | PostgreSQL Flexible Server + `pgvector` HNSW |
@@ -161,12 +161,9 @@ uvicorn src.api.app:app --reload --port 8000
 - API Docs interactiva: `http://localhost:8000/docs`
 - Health check: `http://localhost:8000/health`
 
-### 2. Iniciar el Frontend (Streamlit)
-En otra terminal:
-```bash
-streamlit run src/ui/app_streamlit.py
-```
-Abre en tu navegador `http://localhost:8501`. Streamlit consumirá FastAPI exclusivamente vía HTTP.
+### 2. Abrir el chat web
+Abre `http://localhost:8000/chat/`. FastAPI sirve la interfaz y la API en el mismo proceso.
+Las cartas aparecen dentro de cada respuesta y las referencias se consultan en «Fuentes».
 
 ---
 

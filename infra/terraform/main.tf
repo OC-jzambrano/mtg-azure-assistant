@@ -110,7 +110,6 @@ resource "azurerm_postgresql_flexible_server" "postgres" {
   sku_name               = var.postgres_sku_name
   storage_mb             = 32768
   backup_retention_days  = 7
-  zone                   = "1"
   tags                   = var.tags
 }
 

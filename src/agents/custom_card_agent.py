@@ -24,6 +24,10 @@ class CustomCardOutput(BaseModel):
     oracle_text: str = Field(description="Habilidades y texto de reglas usando la redacción canónica oficial de Magic.")
     flavor_text: Optional[str] = Field(default=None, description="Texto de ambientación en cursiva.")
     color_pie_rationale: str = Field(description="Explicación del balance mecánico y alineación con la filosofía del Color Pie.")
+    art_prompt: Optional[str] = Field(
+        default=None,
+        description="Prompt descriptivo en inglés optimizado para generadores de imágenes (DALL-E 3, Midjourney) con estilo artístico de Magic: The Gathering (óleo digital de fantasía, iluminación cinematográfica, composición dinámica y ambientación)."
+    )
 
 
 class CustomCardAgent:
@@ -43,7 +47,9 @@ class CustomCardAgent:
         "2. Balance de coste: Asigna un CMC proporcional a la fuerza/resistencia y potencia de las habilidades.\n"
         "3. Color Pie estricto: Blanco aporta orden, lealtad y primeras líneas; Rojo aporta agresividad, velocidad e impulsividad; "
         "Azul aporta conocimiento y evasión; Negro aporta sacrificio y ambición; Verde aporta crecimiento y naturaleza.\n"
-        "4. Justificación obligatoria: Explica en 'color_pie_rationale' por qué la carta pertenece a sus colores asignados."
+        "4. Justificación obligatoria: Explica en 'color_pie_rationale' por qué la carta pertenece a sus colores asignados.\n"
+        "5. Prompt de arte (art_prompt): Genera SIEMPRE un prompt detallado en inglés optimizado para DALL-E 3 / Midjourney "
+        "describiendo la escena del arte de la carta al estilo pictórico de MTG (digital oil painting, epic fantasy art, dramatic lighting)."
     )
 
     def __init__(self, llm_service: Optional[LLMService] = None):
@@ -136,6 +142,7 @@ class CustomCardAgent:
 
         pt_line = f"* **Fuerza / Resistencia**: `{output.power}/{output.toughness}`\n" if output.power and output.toughness else ""
         flavor_line = f"* **Texto de Ambientación (*Flavor Text*)**:\n  > *«{output.flavor_text}»*\n\n" if output.flavor_text else ""
+        art_line = f"\n\n* **🎨 Prompt de Ilustración (DALL-E 3 / Midjourney)**:\n  > `{output.art_prompt}`\n" if output.art_prompt else ""
 
         reply = (
             f"### 🃏 Carta Custom Creada: {output.name}\n\n"
@@ -145,6 +152,7 @@ class CustomCardAgent:
             f"* **Habilidades de Juego**:\n  {output.oracle_text}\n"
             f"{flavor_line}"
             f"*{output.color_pie_rationale}*"
+            f"{art_line}"
         )
 
         return reply, card_result
@@ -172,7 +180,8 @@ class CustomCardAgent:
                     "Ese jugador descarta esa carta."
                 ),
                 flavor_text="Encuentro tu falta de fe perturbadora.",
-                color_pie_rationale="Diseño balanceado Dimir ({U}{B}): El negro aporta destrucción implacable y ambición cruel, mientras el azul aporta control mental, telequinesis y anticipación táctica."
+                color_pie_rationale="Diseño balanceado Dimir ({U}{B}): El negro aporta destrucción implacable y ambición cruel, mientras el azul aporta control mental, telequinesis y anticipación táctica.",
+                art_prompt="A dramatic digital oil painting in the style of Magic: The Gathering card art, depicting Darth Vader standing in a dark metallic chamber with glowing red lights, raising a gloved hand with dark purple telekinetic force crackling around him, intense red lightsaber glowing, cinematic rim lighting, epic fantasy mood."
             )
             return self._format_response(output)
 
@@ -191,7 +200,8 @@ class CustomCardAgent:
                 "  * *Tripulación intrépida*: {2}, {T}: El Vehículo objetivo que controlas se convierte en criatura artefacto hasta el final del turno."
             ),
             flavor_text="Nunca me digas las probabilidades.",
-            color_pie_rationale="Diseño balanceado respetando la filosofía del Color Pie (iniciativa agresiva roja y lealtad/coordinación blanca)."
+            color_pie_rationale="Diseño balanceado respetando la filosofía del Color Pie (iniciativa agresiva roja y lealtad/coordinación blanca).",
+            art_prompt="A dynamic digital oil painting in the style of Magic: The Gathering card art, depicting a charismatic smuggler resembling Han Solo in a worn vest and holster, drawing a heavy blaster pistol in a crowded alien cantina, smoke and blaster fire in the background, warm cinematic lighting, heroic action composition."
         )
 
         return self._format_response(output)

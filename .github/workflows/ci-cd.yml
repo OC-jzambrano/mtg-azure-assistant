@@ -48,21 +48,25 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Azure Login
-        uses: azure/login@v2
         if: ${{ env.AZURE_CLIENT_ID != '' }}
+        uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build & Push Docker Image to ACR
+      - name: Docker Login to ACR
         if: ${{ env.AZURE_CLIENT_ID != '' }}
         run: |
-          az acr build \
-            --registry ${{ secrets.AZURE_ACR_NAME }} \
-            --image mtg-assistant:${{ github.sha }} \
-            --image mtg-assistant:latest \
-            .
+          az acr login --name ${{ secrets.AZURE_ACR_NAME }}
+
+      - name: Build & Push Docker Image
+        if: ${{ env.AZURE_CLIENT_ID != '' }}
+        run: |
+          REGISTRY="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
+          docker build -t $REGISTRY/mtg-assistant:${{ github.sha }} -t $REGISTRY/mtg-assistant:latest .
+          docker push $REGISTRY/mtg-assistant:${{ github.sha }}
+          docker push $REGISTRY/mtg-assistant:latest
 
       - name: Deploy Image to Azure Container Apps
         if: ${{ env.AZURE_CLIENT_ID != '' }}

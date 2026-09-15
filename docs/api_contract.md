@@ -1,6 +1,6 @@
 # Contrato Oficial de la API: `/api/chat`
 
-Este documento define la frontera contractual estable e inmutable entre el frontend (**Streamlit**) y el backend (**FastAPI**), así como para cualquier cliente externo o canal de Call Center.
+Este documento define la frontera contractual estable e inmutable entre el frontend (**chat web NLUX**) y el backend (**FastAPI**), así como para cualquier cliente externo o canal de Call Center.
 
 ---
 

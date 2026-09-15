@@ -41,7 +41,7 @@ async function batchText(message) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (typeof data.message !== 'string') throw new Error('Invalid response');
-    current.messages.push({ role: 'assistant', message: data.message });
+    current.messages.push({ role: 'assistant', message: data.message, cards: data.cards || [] });
     (current.results ||= []).push(data);
     persist(); renderResources();
     return safeText(data.message);
@@ -72,20 +72,43 @@ function renderResources() {
   const body = $('#resource-body'); body.replaceChildren();
   let count = 0;
   for (const result of current.results || []) {
-    for (const card of result.cards || []) {
-      const item = document.createElement('article'); item.className = 'result-card';
-      if (/^https?:\/\//i.test(card.image_url || '')) {
-        const img = document.createElement('img'); img.src = card.image_url; img.alt = card.name || 'Carta'; img.loading = 'lazy'; item.append(img);
-      }
-      const title = document.createElement('strong'); title.textContent = card.name; item.append(title);
-      const detail = document.createElement('p'); detail.textContent = [card.mana_cost, card.type_line].filter(Boolean).join(' · '); item.append(detail);
-      body.append(item); count++;
-    }
     for (const source of result.sources || []) {
       const p = document.createElement('p'); p.className = 'source'; p.textContent = [source.title, source.reference].filter(Boolean).join(' · '); body.append(p); count++;
     }
   }
   $('#resource-count').textContent = count ? `(${count})` : '';
+  $('#resources').hidden = count === 0;
+}
+function renderMessageCards(container, message, index) {
+  // Older histories stored results separately. Match successful replies in order,
+  // so a failed request cannot shift the cards onto a different response.
+  const assistants = current.messages.filter(m => m.role === 'assistant');
+  let resultIndex = 0;
+  let legacyCards = [];
+  for (let i = 0; i <= index; i++) {
+    const result = (current.results || [])[resultIndex];
+    if (result && result.message === assistants[i].message) {
+      if (i === index) legacyCards = result.cards || [];
+      resultIndex++;
+    }
+  }
+  const cards = message.cards ?? legacyCards;
+  if (!cards.length) return;
+  const gallery = document.createElement('div'); gallery.className = 'message-cards';
+  gallery.setAttribute('aria-label', 'Cartas de esta respuesta');
+  for (const card of cards) {
+    const item = document.createElement('article'); item.className = 'result-card';
+    if (/^https?:\/\//i.test(card.image_url || '')) {
+      const img = document.createElement('img'); img.src = card.image_url;
+      img.alt = card.name || 'Carta'; img.loading = 'lazy';
+      img.addEventListener('error', () => { img.remove(); }, { once: true });
+      item.append(img);
+    }
+    const title = document.createElement('strong'); title.textContent = card.name || 'Carta'; item.append(title);
+    const detail = document.createElement('p'); detail.textContent = [card.mana_cost, card.type_line].filter(Boolean).join(' · '); item.append(detail);
+    gallery.append(item);
+  }
+  container.append(gallery);
 }
 function renderHistory() {
   const list = $('#sessions'); list.replaceChildren();
@@ -110,11 +133,14 @@ $('#export').onclick = () => {
   const blob = new Blob([current.messages.map(m => `## ${m.role === 'user' ? 'Tú' : 'MTG Tutor'}\n\n${m.message}`).join('\n\n')], { type: 'text/markdown' });
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'conversacion-mtg.md'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
-setInterval(() => {
+function decorateMessages() {
   document.querySelectorAll('.nlux-comp-chatItem--received').forEach((item, index) => {
     if (item.querySelector('.message-tools')) return;
     const message = current.messages.filter(m => m.role === 'assistant')[index];
     if (!message) return;
+    const container = item.querySelector('.nlux-comp-message');
+    if (!container) return;
+    renderMessageCards(container, message, index);
     const actions = document.createElement('div'); actions.className = 'message-tools';
     for (const [label, symbol, vote] of [['Copiar respuesta', '⧉', null], ['Respuesta útil', '+', 1], ['Respuesta poco útil', '−', -1]]) {
       const button = document.createElement('button'); button.textContent = symbol; button.title = label; button.setAttribute('aria-label', label);
@@ -126,8 +152,9 @@ setInterval(() => {
       };
       actions.append(button);
     }
-    item.append(actions);
+    container.append(actions);
   });
-}, 1000);
+}
+new MutationObserver(decorateMessages).observe($('#chat-ui-container'), { childList: true, subtree: true });
 mount();
 fetch('/health').then(r => { $('#status').textContent = r.ok ? 'Conectado · Listo para tu consulta' : 'Servicio no disponible'; }).catch(() => { $('#status').textContent = 'Sin conexión'; });
