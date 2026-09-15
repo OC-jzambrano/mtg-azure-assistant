@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import List, Optional, Any
 from src.config import settings
 from src.observability.tracing import tracing
@@ -20,10 +21,10 @@ class EmbeddingService:
         dimensions: Optional[int] = None,
         client: Optional[Any] = None,
     ):
-        self.endpoint = endpoint or settings.azure_openai_endpoint
-        self.api_key = api_key or settings.azure_openai_api_key or settings.openai_api_key
-        self.deployment = deployment or settings.azure_openai_embedding_deployment
-        self.dimensions = dimensions or settings.embedding_dimensions
+        self.endpoint = endpoint if endpoint is not None else settings.azure_openai_endpoint
+        self.api_key = api_key if api_key is not None else (settings.azure_openai_api_key or settings.openai_api_key)
+        self.deployment = deployment if deployment is not None else settings.azure_openai_embedding_deployment
+        self.dimensions = dimensions if dimensions is not None else settings.embedding_dimensions
 
         self._client = client
         self._client_initialized = client is not None
@@ -85,18 +86,23 @@ class EmbeddingService:
                 "dimensions": self.dimensions,
             },
         ) as obs:
-            try:
-                response = client.embeddings.create(
-                    input=clean_text,
-                    model=self.deployment,
-                )
-                embedding = response.data[0].embedding
-                obs.update(output={"dimensions": len(embedding)})
-                return embedding
-            except Exception as exc:
-                obs.update(level="ERROR", status_message=type(exc).__name__)
-                logger.warning("Failed to generate query embedding: %s", exc)
-                raise RuntimeError(f"Embedding generation failed: {exc}") from exc
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = client.embeddings.create(
+                        input=clean_text,
+                        model=self.deployment,
+                    )
+                    embedding = response.data[0].embedding
+                    obs.update(output={"dimensions": len(embedding)})
+                    return embedding
+                except Exception as exc:
+                    if attempt < max_retries - 1 and ("DeploymentNotFound" in str(exc) or "404" in str(exc)):
+                        time.sleep(0.7)
+                        continue
+                    obs.update(level="ERROR", status_message=type(exc).__name__)
+                    logger.warning("Failed to generate query embedding: %s", exc)
+                    raise RuntimeError(f"Embedding generation failed: {exc}") from exc
 
     def embed_documents(self, texts: List[str], batch_size: int = 50) -> List[List[float]]:
         """
@@ -126,10 +132,19 @@ class EmbeddingService:
             try:
                 for i in range(0, len(texts), batch_size):
                     batch = texts[i : i + batch_size]
-                    response = client.embeddings.create(
-                        input=batch,
-                        model=self.deployment,
-                    )
+                    response = None
+                    for attempt in range(3):
+                        try:
+                            response = client.embeddings.create(
+                                input=batch,
+                                model=self.deployment,
+                            )
+                            break
+                        except Exception as exc:
+                            if attempt < 2 and ("DeploymentNotFound" in str(exc) or "404" in str(exc)):
+                                time.sleep(0.7)
+                                continue
+                            raise
                     # Embeddings in response.data are ordered by index
                     sorted_data = sorted(response.data, key=lambda item: getattr(item, "index", 0))
                     for item in sorted_data:

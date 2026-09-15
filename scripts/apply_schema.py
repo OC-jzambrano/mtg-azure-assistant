@@ -22,9 +22,9 @@ def apply_schema():
     logger.info("Applying database schema from %s", schema_path)
     logger.info("Target database URL: %s", settings.database_url.split("@")[-1] if "@" in settings.database_url else "configured")
 
-    if not database.is_available():
+    if not database.is_reachable():
         logger.error(
-            "Cannot connect to PostgreSQL at %s. Ensure docker-compose is running ('docker compose up -d').",
+            "Cannot connect to PostgreSQL at %s. Ensure PostgreSQL is reachable ('docker compose up -d' or Azure PostgreSQL firewall).",
             settings.database_url
         )
         sys.exit(1)
@@ -39,6 +39,10 @@ def apply_schema():
     ALTER TABLE IF EXISTS mtg_rules ADD COLUMN IF NOT EXISTS embedding_model VARCHAR(100);
     ALTER TABLE IF EXISTS mtg_rules ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);
     ALTER TABLE IF EXISTS mtg_rules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+    -- Ensure chat_sessions allows anonymous users
+    ALTER TABLE IF EXISTS chat_sessions ALTER COLUMN user_id DROP NOT NULL;
+    ALTER TABLE IF EXISTS chat_sessions ALTER COLUMN user_id SET DEFAULT 'anonymous';
 
     DO $$
     BEGIN
@@ -58,15 +62,18 @@ def apply_schema():
     """
 
     try:
-        with database.connection() as conn:
+        # Use a direct, unpooled connection with autocommit so CREATE EXTENSION executes cleanly
+        with psycopg.connect(settings.database_url, autocommit=True) as conn:
             with conn.cursor() as cur:
-                logger.info("Executing base schema.sql DDL...")
+                logger.info("Executing base schema.sql DDL (including CREATE EXTENSION IF NOT EXISTS vector)...")
                 cur.execute(schema_sql)
                 logger.info("Executing idempotent migration guards...")
                 cur.execute(migration_sql)
-                conn.commit()
 
-        logger.info("✅ Schema and indexes applied successfully to PostgreSQL!")
+        if database.is_vector_ready():
+            logger.info("✅ Schema, pgvector extension, and indexes applied successfully to PostgreSQL!")
+        else:
+            logger.warning("⚠️ Schema applied, but pgvector is not yet fully ready on this server.")
     finally:
         database.close()
 

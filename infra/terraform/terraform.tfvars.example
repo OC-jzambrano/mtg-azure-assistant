@@ -1,19 +1,29 @@
-prefix          = "mtg-assistant"
-environment     = "prod"
-location        = "westeurope"
-openai_location = "swedencentral"
-container_image = "ghcr.io/your-org/mtg-azure-assistant:latest"
-app_port        = 8000
+prefix      = "mtg-assistant"
+environment = "prod"
+location    = "westeurope"
+app_port    = 8000
+acr_sku     = "Basic"
+
+# Container Image (leave empty to use default ACR built image)
+# container_image = "mtgassistantacrXXXXXX.azurecr.io/mtg-assistant:latest"
 
 # PostgreSQL Administrator Credentials
-# NOTE: Never commit production passwords to version control.
-# Can also be set via environment variable: TF_VAR_postgres_admin_password="your-password"
+# NOTE: Can also be set via environment variable TF_VAR_postgres_admin_password
 postgres_admin_user     = "mtgadmin"
 postgres_admin_password = "ChangeMe_SecurePassword2026!"
+postgres_sku_name       = "B_Standard_B1ms"
+
+# Existing Azure OpenAI / AI Foundry Service
+# (Pass existing endpoint and API key - no duplicate resource is created)
+azure_openai_endpoint             = "https://mtg-azure-assistant-resource.openai.azure.com/"
+azure_openai_api_key              = "YOUR_AZURE_OPENAI_API_KEY_HERE"
+azure_openai_deployment           = "gpt-4.1-mini"
+azure_openai_reasoning_deployment = "gpt-4o"
+azure_openai_embedding_deployment = "text-embedding-3-small"
+embedding_dimensions              = 1536
 
 tags = {
   Project     = "MTG Call Center Assistant"
   Environment = "Production"
   ManagedBy   = "Terraform"
 }
-

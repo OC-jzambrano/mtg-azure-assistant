@@ -1,3 +1,4 @@
+import uuid
 import pytest
 from src.orchestrator import MTGOrchestrator
 from src.api.schemas import ResponseType
@@ -70,7 +71,7 @@ def test_acceptance_scenario_4_multiturn_search_accumulation(mock_mtg_tool):
     Turn 3: 'Busca una carta roja dragón' -> context reset to R + Dragon
     """
     orchestrator = MTGOrchestrator()
-    session_id = "acc-test-multiturn-4"
+    session_id = f"acc-test-multiturn-4-{uuid.uuid4()}"
 
     # Turn 1
     res1 = orchestrator.handle_message(session_id, "Busco una carta blanca guerrero")

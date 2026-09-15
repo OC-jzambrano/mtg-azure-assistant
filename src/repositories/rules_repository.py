@@ -36,6 +36,29 @@ class RulesRepository:
                     hashes[row[0]] = row[1]
         return hashes
 
+    def get_rules_status(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Retrieves comprehensive status for all stored rules:
+        {rule_id: {'content_hash': str, 'has_embedding': bool, 'embedding_model': str}}
+        Enables detecting missing embeddings or model changes even if content_hash matches.
+        """
+        status: Dict[str, Dict[str, Any]] = {}
+        with self.db.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT rule_id, content_hash, (embedding IS NOT NULL) AS has_embedding, embedding_model
+                    FROM mtg_rules;
+                    """
+                )
+                for row in cur.fetchall():
+                    status[row[0]] = {
+                        "content_hash": row[1],
+                        "has_embedding": bool(row[2]),
+                        "embedding_model": row[3],
+                    }
+        return status
+
     def count_rules(self) -> int:
         """Returns the total number of rules in mtg_rules."""
         with self.db.connection() as conn:

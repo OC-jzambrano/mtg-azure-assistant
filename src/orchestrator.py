@@ -398,16 +398,19 @@ class MTGOrchestrator:
             name="retrieve_rules",
             as_type="retriever",
             input=rag_input,
-            metadata={"retrieval_backend": "lexical_fallback"}
+            metadata={"retrieval_backend": self.rag.last_backend_used}
         ) as ret_obs:
             rule_chunks = self.rag.retrieve_rules(rag_query, top_k=3)
-            ret_obs.update(output={
-                "count": len(rule_chunks),
-                "rules": [
-                    {"rule_number": c.rule_number, "score": c.score}
-                    for c in rule_chunks
-                ]
-            })
+            ret_obs.update(
+                metadata={"retrieval_backend": self.rag.last_backend_used},
+                output={
+                    "count": len(rule_chunks),
+                    "rules": [
+                        {"rule_number": c.rule_number, "score": c.score}
+                        for c in rule_chunks
+                    ]
+                }
+            )
 
         # 4. Delegate to RulesReasoningAgent with both sources (Canonical Rules + Oracle Cards)
         reply, sources = self.rules_agent.run(

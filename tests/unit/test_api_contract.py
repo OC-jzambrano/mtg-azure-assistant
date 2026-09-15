@@ -10,6 +10,15 @@ def test_health_contract(client):
     assert "MTG Call Center Assistant" in data["service"]
 
 
+def test_ready_contract(client):
+    res = client.get("/ready")
+    assert res.status_code in [200, 503]
+    data = res.json()
+    assert "database_reachable" in data
+    assert "pgvector_ready" in data
+    assert "status" in data
+
+
 def test_chat_contract_rules(client):
     conversation_id = "550e8400-e29b-41d4-a716-446655440001"
     response = client.post(

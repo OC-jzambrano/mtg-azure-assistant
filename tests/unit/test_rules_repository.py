@@ -50,7 +50,7 @@ def test_vector_search_sql_query(mock_db):
     # Verificar que la query contiene el operador de distancia coseno de pgvector
     executed_sql = cursor.execute.call_args[0][0]
     assert "<=>" in executed_sql
-    assert "1 - (embedding <=> %(query_embedding)s)" in executed_sql
+    assert "1 - (embedding <=> %(query_embedding)s" in executed_sql
 
 
 def test_upsert_rules_conflict_handling(mock_db):

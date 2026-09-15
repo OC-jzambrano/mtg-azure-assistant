@@ -39,7 +39,7 @@ ON mtg_rules (rule_id);
 -- 2. Call Center Chat Sessions & Multi-turn Memory
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id VARCHAR(64) PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL,
+    user_id VARCHAR(64) DEFAULT 'anonymous',
     channel VARCHAR(32) DEFAULT 'webchat',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_active TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

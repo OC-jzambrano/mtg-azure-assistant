@@ -58,7 +58,32 @@ resource "azurerm_application_insights" "appinsights" {
   tags                = var.tags
 }
 
-# 3. Storage Account (PDF Rules, Custom Card Art)
+# 3. Azure Container Registry (ACR) for Production Images
+resource "azurerm_container_registry" "acr" {
+  name                = replace("${var.prefix}acr${random_string.suffix.result}", "-", "")
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  sku                 = var.acr_sku
+  admin_enabled       = false
+  tags                = var.tags
+}
+
+# 4. User-Assigned Managed Identity for Container Apps
+resource "azurerm_user_assigned_identity" "ca_identity" {
+  name                = "${var.prefix}-ca-identity-${random_string.suffix.result}"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  tags                = var.tags
+}
+
+# Role assignment: AcrPull for Container Apps Managed Identity
+resource "azurerm_role_assignment" "acr_pull" {
+  scope                = azurerm_container_registry.acr.id
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_user_assigned_identity.ca_identity.principal_id
+}
+
+# 5. Storage Account (Rules, Assets)
 resource "azurerm_storage_account" "storage" {
   name                     = replace("${var.prefix}st${random_string.suffix.result}", "-", "")
   resource_group_name      = azurerm_resource_group.rg.name
@@ -74,13 +99,7 @@ resource "azurerm_storage_container" "rules_container" {
   container_access_type = "private"
 }
 
-resource "azurerm_storage_container" "card_art_container" {
-  name                  = "custom-cards"
-  storage_account_name  = azurerm_storage_account.storage.name
-  container_access_type = "blob"
-}
-
-# 4. Azure Database for PostgreSQL Flexible Server with pgvector extension
+# 6. Azure Database for PostgreSQL Flexible Server with pgvector
 resource "azurerm_postgresql_flexible_server" "postgres" {
   name                   = "${var.prefix}-pg-${random_string.suffix.result}"
   resource_group_name    = azurerm_resource_group.rg.name
@@ -95,7 +114,7 @@ resource "azurerm_postgresql_flexible_server" "postgres" {
   tags                   = var.tags
 }
 
-# Enable pgvector extension on Azure PostgreSQL
+# Allowlist pgvector extension on Azure PostgreSQL
 resource "azurerm_postgresql_flexible_server_configuration" "pgvector_ext" {
   name      = "azure.extensions"
   server_id = azurerm_postgresql_flexible_server.postgres.id
@@ -117,65 +136,7 @@ resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
   end_ip_address   = "0.0.0.0"
 }
 
-# 6. Azure OpenAI Service
-resource "azurerm_cognitive_account" "openai" {
-  name                = "${var.prefix}-openai-${random_string.suffix.result}"
-  location            = var.openai_location
-  resource_group_name = azurerm_resource_group.rg.name
-  kind                = "OpenAI"
-  sku_name            = "S0"
-  tags                = var.tags
-}
-
-resource "azurerm_cognitive_deployment" "gpt4o" {
-  name                 = "gpt-4o"
-  cognitive_account_id = azurerm_cognitive_account.openai.id
-
-  model {
-    format  = "OpenAI"
-    name    = "gpt-4o"
-    version = "2024-05-13"
-  }
-
-  scale {
-    type     = "Standard"
-    capacity = 30
-  }
-}
-
-resource "azurerm_cognitive_deployment" "gpt4o_mini" {
-  name                 = "gpt-4o-mini"
-  cognitive_account_id = azurerm_cognitive_account.openai.id
-
-  model {
-    format  = "OpenAI"
-    name    = "gpt-4o-mini"
-    version = "2024-07-18"
-  }
-
-  scale {
-    type     = "Standard"
-    capacity = 50
-  }
-}
-
-resource "azurerm_cognitive_deployment" "embeddings" {
-  name                 = "text-embedding-3-small"
-  cognitive_account_id = azurerm_cognitive_account.openai.id
-
-  model {
-    format  = "OpenAI"
-    name    = "text-embedding-3-small"
-    version = "1"
-  }
-
-  scale {
-    type     = "Standard"
-    capacity = 50
-  }
-}
-
-# 7. Azure Key Vault (Secrets Management)
+# 7. Azure Key Vault (Production Secrets via Managed Identity)
 resource "azurerm_key_vault" "kv" {
   name                       = "${var.prefix}-kv-${random_string.suffix.result}"
   location                   = azurerm_resource_group.rg.location
@@ -185,6 +146,7 @@ resource "azurerm_key_vault" "kv" {
   purge_protection_enabled   = false
   soft_delete_retention_days = 7
 
+  # Deployer access policy
   access_policy {
     tenant_id = data.azurerm_client_config.current.tenant_id
     object_id = data.azurerm_client_config.current.object_id
@@ -201,16 +163,33 @@ resource "azurerm_key_vault" "kv" {
   tags = var.tags
 }
 
-# Key Vault Secrets for sensitive application credentials
+# Key Vault Access Policy for Container Apps User-Assigned Identity
+resource "azurerm_key_vault_access_policy" "ca_identity_access" {
+  key_vault_id = azurerm_key_vault.kv.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_user_assigned_identity.ca_identity.principal_id
+
+  secret_permissions = [
+    "Get", "List"
+  ]
+}
+
+# Production Key Vault Secrets
 resource "azurerm_key_vault_secret" "openai_key" {
   name         = "azure-openai-api-key"
-  value        = azurerm_cognitive_account.openai.primary_access_key
+  value        = var.azure_openai_api_key
   key_vault_id = azurerm_key_vault.kv.id
 }
 
 resource "azurerm_key_vault_secret" "database_url" {
   name         = "database-url"
   value        = "postgresql://${var.postgres_admin_user}:${var.postgres_admin_password}@${azurerm_postgresql_flexible_server.postgres.fqdn}:5432/${azurerm_postgresql_flexible_server_database.mtg_db.name}?sslmode=require"
+  key_vault_id = azurerm_key_vault.kv.id
+}
+
+resource "azurerm_key_vault_secret" "appinsights_cs" {
+  name         = "appinsights-connection-string"
+  value        = azurerm_application_insights.appinsights.connection_string
   key_vault_id = azurerm_key_vault.kv.id
 }
 
@@ -223,34 +202,52 @@ resource "azurerm_container_app_environment" "cae" {
   tags                       = var.tags
 }
 
+locals {
+  effective_container_image = var.container_image != "" ? var.container_image : "${azurerm_container_registry.acr.login_server}/mtg-assistant:latest"
+}
+
 resource "azurerm_container_app" "backend" {
   name                         = "${var.prefix}-app"
   container_app_environment_id = azurerm_container_app_environment.cae.id
   resource_group_name          = azurerm_resource_group.rg.name
   revision_mode                = "Single"
 
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.ca_identity.id]
+  }
+
+  registry {
+    server   = azurerm_container_registry.acr.login_server
+    identity = azurerm_user_assigned_identity.ca_identity.id
+  }
+
+  # Key Vault secret references via Managed Identity
   secret {
-    name  = "azure-openai-key"
-    value = azurerm_cognitive_account.openai.primary_access_key
+    name                = "azure-openai-key"
+    key_vault_secret_id = azurerm_key_vault_secret.openai_key.versionless_id
+    identity            = azurerm_user_assigned_identity.ca_identity.id
   }
 
   secret {
-    name  = "database-url"
-    value = "postgresql://${var.postgres_admin_user}:${var.postgres_admin_password}@${azurerm_postgresql_flexible_server.postgres.fqdn}:5432/${azurerm_postgresql_flexible_server_database.mtg_db.name}?sslmode=require"
+    name                = "database-url"
+    key_vault_secret_id = azurerm_key_vault_secret.database_url.versionless_id
+    identity            = azurerm_user_assigned_identity.ca_identity.id
   }
 
   secret {
-    name  = "appinsights-connection-string"
-    value = azurerm_application_insights.appinsights.connection_string
+    name                = "appinsights-connection-string"
+    key_vault_secret_id = azurerm_key_vault_secret.appinsights_cs.versionless_id
+    identity            = azurerm_user_assigned_identity.ca_identity.id
   }
 
   template {
     min_replicas = 1
-    max_replicas = 5
+    max_replicas = 3
 
     container {
       name   = "mtg-assistant-api"
-      image  = var.container_image
+      image  = local.effective_container_image
       cpu    = 0.5
       memory = "1.0Gi"
 
@@ -260,7 +257,7 @@ resource "azurerm_container_app" "backend" {
       }
       env {
         name  = "AZURE_OPENAI_ENDPOINT"
-        value = azurerm_cognitive_account.openai.endpoint
+        value = var.azure_openai_endpoint
       }
       env {
         name        = "AZURE_OPENAI_API_KEY"
@@ -268,19 +265,19 @@ resource "azurerm_container_app" "backend" {
       }
       env {
         name  = "AZURE_OPENAI_DEPLOYMENT"
-        value = azurerm_cognitive_deployment.gpt4o_mini.name
+        value = var.azure_openai_deployment
       }
       env {
         name  = "AZURE_OPENAI_DEPLOYMENT_REASONING"
-        value = azurerm_cognitive_deployment.gpt4o.name
+        value = var.azure_openai_reasoning_deployment
       }
       env {
         name  = "AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
-        value = azurerm_cognitive_deployment.embeddings.name
+        value = var.azure_openai_embedding_deployment
       }
       env {
         name  = "EMBEDDING_DIMENSIONS"
-        value = "1536"
+        value = tostring(var.embedding_dimensions)
       }
       env {
         name        = "DATABASE_URL"
@@ -293,6 +290,30 @@ resource "azurerm_container_app" "backend" {
       env {
         name  = "APP_ENV"
         value = var.environment
+      }
+      env {
+        name  = "RAG_BACKEND"
+        value = "auto"
+      }
+
+      # Health probes
+      liveness_probe {
+        port                    = var.app_port
+        transport               = "HTTP"
+        path                    = "/health"
+        initial_delay           = 10
+        interval_seconds        = 15
+        timeout                 = 5
+        failure_count_threshold = 3
+      }
+
+      readiness_probe {
+        port                    = var.app_port
+        transport               = "HTTP"
+        path                    = "/ready"
+        interval_seconds        = 10
+        timeout                 = 5
+        failure_count_threshold = 3
       }
     }
   }
@@ -308,5 +329,9 @@ resource "azurerm_container_app" "backend" {
   }
 
   tags = var.tags
-}
 
+  depends_on = [
+    azurerm_key_vault_access_policy.ca_identity_access,
+    azurerm_role_assignment.acr_pull
+  ]
+}

@@ -11,4 +11,4 @@ pgvector>=0.2.5
 streamlit>=1.63.0,<2
 openai>=1.0.0
 langfuse>=4,<5
-
+azure-monitor-opentelemetry>=1.6.0

@@ -26,10 +26,10 @@ class LLMService:
         deployment_reasoning: Optional[str] = None,
         client: Optional[Any] = None
     ):
-        self.endpoint = endpoint or settings.azure_openai_endpoint
-        self.api_key = api_key or settings.azure_openai_api_key or settings.openai_api_key
-        self.deployment = deployment or settings.azure_openai_deployment
-        self.deployment_reasoning = deployment_reasoning or settings.azure_openai_deployment_reasoning
+        self.endpoint = endpoint if endpoint is not None else settings.azure_openai_endpoint
+        self.api_key = api_key if api_key is not None else (settings.azure_openai_api_key or settings.openai_api_key)
+        self.deployment = deployment if deployment is not None else settings.azure_openai_deployment
+        self.deployment_reasoning = deployment_reasoning if deployment_reasoning is not None else settings.azure_openai_deployment_reasoning
         
         self._client = client
         self._client_initialized = client is not None

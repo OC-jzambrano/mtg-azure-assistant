@@ -1,43 +1,27 @@
 output "resource_group_name" {
-  description = "Name of the created Resource Group"
+  description = "Name of the created Azure Resource Group"
   value       = azurerm_resource_group.rg.name
 }
 
+output "acr_name" {
+  description = "Name of the Azure Container Registry"
+  value       = azurerm_container_registry.acr.name
+}
+
+output "acr_login_server" {
+  description = "Login server hostname for Azure Container Registry"
+  value       = azurerm_container_registry.acr.login_server
+}
+
 output "application_url" {
-  description = "Public URL for the MTG Call Center Assistant API"
+  description = "Public HTTPS URL for the MTG Call Center Assistant (FastAPI + /chat UI)"
   value       = "https://${azurerm_container_app.backend.latest_revision_fqdn}"
 }
 
 output "app_insights_connection_string" {
-  description = "Application Insights connection string for OpenTelemetry"
+  description = "Application Insights connection string for OpenTelemetry runtime"
   value       = azurerm_application_insights.appinsights.connection_string
   sensitive   = true
-}
-
-output "azure_openai_endpoint" {
-  description = "Azure OpenAI Service endpoint"
-  value       = azurerm_cognitive_account.openai.endpoint
-}
-
-output "azure_openai_primary_key" {
-  description = "Azure OpenAI primary access key (sensitive)"
-  value       = azurerm_cognitive_account.openai.primary_access_key
-  sensitive   = true
-}
-
-output "azure_openai_deployment_chat" {
-  description = "Chat completion deployment name (gpt-4o-mini)"
-  value       = azurerm_cognitive_deployment.gpt4o_mini.name
-}
-
-output "azure_openai_deployment_reasoning" {
-  description = "Reasoning deployment name (gpt-4o)"
-  value       = azurerm_cognitive_deployment.gpt4o.name
-}
-
-output "azure_openai_deployment_embeddings" {
-  description = "Embedding deployment name (text-embedding-3-small)"
-  value       = azurerm_cognitive_deployment.embeddings.name
 }
 
 output "key_vault_name" {
@@ -55,3 +39,7 @@ output "postgres_database_name" {
   value       = azurerm_postgresql_flexible_server_database.mtg_db.name
 }
 
+output "managed_identity_client_id" {
+  description = "Client ID of the User Assigned Identity for Container Apps"
+  value       = azurerm_user_assigned_identity.ca_identity.client_id
+}

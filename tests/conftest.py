@@ -81,6 +81,28 @@ def prevent_external_http_in_unit_tests(monkeypatch, request):
         return
 
     import httpx
+    from src.config import settings
+
+    monkeypatch.setattr(settings, "azure_openai_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr(settings, "langfuse_enabled", False)
+
+    from src.services.llm import LLMService
+    from src.services.embeddings import EmbeddingService
+
+    def safe_llm_is_available(self):
+        if getattr(self, "_client", None) is not None:
+            return True
+        return False
+
+    monkeypatch.setattr(LLMService, "is_available", safe_llm_is_available)
+
+    def safe_embed_is_available(self):
+        if getattr(self, "_client", None) is not None:
+            return True
+        return False
+
+    monkeypatch.setattr(EmbeddingService, "is_available", safe_embed_is_available)
 
     orig_get = httpx.Client.get
 

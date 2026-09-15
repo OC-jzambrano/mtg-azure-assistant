@@ -44,9 +44,11 @@ def ingest_rules():
 
     repository = RulesRepository(db=database)
 
-    # 3. Check existing content hashes for idempotency
-    existing_hashes = repository.get_existing_hashes()
-    logger.info("Retrieved %d existing rule hashes from PostgreSQL.", len(existing_hashes))
+    # 3. Check existing rule status for fine-grained idempotency
+    existing_status = repository.get_rules_status()
+    logger.info("Retrieved %d existing rules from PostgreSQL.", len(existing_status))
+
+    target_embedding_model = embedding_service.deployment if embedding_service.is_available() else None
 
     to_process_chunks: List[RuleChunk] = []
     to_process_texts: List[str] = []
@@ -60,14 +62,29 @@ def ingest_rules():
         norm_text = build_embedding_text(chunk)
         c_hash = calculate_content_hash(norm_text)
 
-        if chunk.rule_id in existing_hashes and existing_hashes[chunk.rule_id] == c_hash:
-            skipped_unchanged += 1
-        else:
-            if chunk.rule_id in existing_hashes:
-                updated += 1
-            else:
-                new_embeddings += 1
+        status = existing_status.get(chunk.rule_id)
+        needs_processing = False
 
+        if status is None:
+            # Rule does not exist in DB
+            new_embeddings += 1
+            needs_processing = True
+        else:
+            # Rule exists: check if content changed, embedding is missing, or model changed
+            content_changed = status.get("content_hash") != c_hash
+            missing_embedding = (not status.get("has_embedding")) and embedding_service.is_available()
+            model_changed = (
+                embedding_service.is_available()
+                and status.get("embedding_model") != target_embedding_model
+            )
+
+            if content_changed or missing_embedding or model_changed:
+                updated += 1
+                needs_processing = True
+            else:
+                skipped_unchanged += 1
+
+        if needs_processing:
             to_process_chunks.append(chunk)
             to_process_texts.append(norm_text)
             to_process_hashes.append(c_hash)

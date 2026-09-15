@@ -16,16 +16,16 @@ variable "location" {
   description = "Azure region for resource deployment"
 }
 
-variable "openai_location" {
+variable "acr_sku" {
   type        = string
-  default     = "swedencentral"
-  description = "Azure region for Azure OpenAI (where GPT-4o and embeddings are widely available)"
+  default     = "Basic"
+  description = "SKU for Azure Container Registry"
 }
 
 variable "container_image" {
   type        = string
-  default     = "mcr.microsoft.com/azuredocs/aci-helloworld:latest"
-  description = "Container image for the MTG Assistant FastAPI backend"
+  default     = ""
+  description = "Full container image path. If empty, defaults to the built ACR image."
 }
 
 variable "app_port" {
@@ -50,6 +50,42 @@ variable "postgres_sku_name" {
   type        = string
   default     = "B_Standard_B1ms"
   description = "SKU for PostgreSQL Flexible Server (Burstable B1ms is cost-effective for dev/test)"
+}
+
+# External Existing Azure OpenAI / Foundry Service configuration
+variable "azure_openai_endpoint" {
+  type        = string
+  description = "Endpoint of existing Azure OpenAI / Foundry resource (e.g. https://<name>.openai.azure.com/)"
+}
+
+variable "azure_openai_api_key" {
+  type        = string
+  sensitive   = true
+  description = "API key for existing Azure OpenAI / Foundry resource"
+}
+
+variable "azure_openai_deployment" {
+  type        = string
+  default     = "gpt-4.1-mini"
+  description = "Deployment name for standard completions / structured output (e.g. gpt-4.1-mini)"
+}
+
+variable "azure_openai_reasoning_deployment" {
+  type        = string
+  default     = "gpt-4o"
+  description = "Deployment name for complex reasoning / CoT rules judgments (e.g. gpt-4o)"
+}
+
+variable "azure_openai_embedding_deployment" {
+  type        = string
+  default     = "text-embedding-3-small"
+  description = "Deployment name for text embeddings"
+}
+
+variable "embedding_dimensions" {
+  type        = number
+  default     = 1536
+  description = "Dimensionality of embedding vectors"
 }
 
 variable "tags" {
